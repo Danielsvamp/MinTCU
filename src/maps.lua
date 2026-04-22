@@ -15,7 +15,7 @@ const Clutch HOLDING_CLUTCHES[8][2] = {
 
 
 local upshiftDurMap = { -- Pedal Position (%), Engine Speed (rpm), Time (ms)
-    5, 6,
+    6, 5,
     
     0, 20, 40, 60, 80, 100,
     
@@ -62,34 +62,30 @@ end
 
 
 
-function readMap.new(mapName, inputX, inputY)
-    local self = setmetatable({}, readMap)
+function lookupMap:get(inputX, inputY)
     
-    self.map = mapName
-    self.valX = inputX
-    self.valY = inputY
-
-    local rows = map[1]
-    local cols = map[2]
+    local map = self.map
+    local rows = self.rows
+    local cols = self.cols
     
-    local xStart = 3
-    local yStart = xStart + cols
-    local zStart = yStart + rows
+    local xS = self.xS
+    local yS = self.yS
+    local zS = self.zS
     
     local xIdx = 1
     for i = 0, cols - 2 do
-        if valX >= map[xStart + i] then xIdx = i + 1 end
+        if inputX >= map[xS + i] then xIdx = i + 1 end
     end
     
-     local yIdx = 1
+    local yIdx = 1
     for i = 0, rows - 2 do
-        if valY >= map[yStart + i] then yIdx = i + 1 end
+        if inputY >= map[yS + i] then yIdx = i + 1 end
     end
 
-    local yFrac = (valY - map[yStart + yIdx - 1]) / (map[yStart + yIdx] - map[yStart + yIdx - 1])
-    local xFrac = (valX - map[xStart + xIdx - 1]) / (map[xStart + xIdx] - map[xStart + xIdx - 1])
+    local yFrac = (inputY - map[yS + yIdx - 1]) / (map[yS + yIdx] - map[yS + yIdx - 1])
+    local xFrac = (inputX - map[xS + xIdx - 1]) / (map[xS + xIdx] - map[xS + xIdx - 1])
 
-    local i11 = zStart + (yIdx - 1) * cols + (xIdx - 1)
+    local i11 = zS + (yIdx - 1) * cols + (xIdx - 1)
     local i21 = i11 + 1
     local i12 = i11 + cols
     local i22 = i12 + 1
@@ -102,6 +98,8 @@ function readMap.new(mapName, inputX, inputY)
     local bottom = v12 + xFrac * (v22 - v12)
     
     return top + yFrac * (bottom - top)
-    
-    return self
 end
+
+
+local map = lookupMap.new(upshiftDurMap)
+print(map:get(40, 2000))
