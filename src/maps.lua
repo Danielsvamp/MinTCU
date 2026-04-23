@@ -1,4 +1,23 @@
-local shifts
+
+
+Clutch get_clutch_to_apply(GearChange change) {
+    switch(change) {
+        case GearChange::_1_2:
+        case GearChange::_5_4:
+            return Clutch::K1;
+        case GearChange::_2_3:
+            return Clutch::K2;
+        case GearChange::_3_4:
+        case GearChange::_3_2:
+            return Clutch::K3;
+        case GearChange::_4_3:
+            return Clutch::B2;
+        case GearChange::_4_5:
+        case GearChange::_2_1:
+        default:
+            return Clutch::B1;
+    }
+}
 
 const Clutch HOLDING_CLUTCHES[8][2] = {
     {Clutch::B2, Clutch::K3}, // 1-2 (B2 + K3)
@@ -14,7 +33,7 @@ const Clutch HOLDING_CLUTCHES[8][2] = {
 
 
 
-local upshiftDurMap = { -- Pedal Position (%), Engine Speed (rpm), Time (ms)
+local upshiftDurMapData = { -- Pedal Position (%), Engine Speed (rpm), Time (ms)
     6, 5,
     
     0, 20, 40, 60, 80, 100,
@@ -28,7 +47,7 @@ local upshiftDurMap = { -- Pedal Position (%), Engine Speed (rpm), Time (ms)
     450,  425,  400,  375, 350, 350
 }
 
-local clutchFillTimeMap = { -- ATF Temp (°C), Clutches and Brakes in order, TIME (ms)
+local clutchFillTimeMapData = { -- ATF Temp (°C), Clutches and Brakes in order, TIME (ms)
     4, 5,
 
     -20, 5, 25, 60,
@@ -59,8 +78,6 @@ function lookupMap.new(mapName)
 
     return self
 end
-
-
 
 function lookupMap:get(inputX, inputY)
     
@@ -100,6 +117,6 @@ function lookupMap:get(inputX, inputY)
     return top + yFrac * (bottom - top)
 end
 
-
-local map = lookupMap.new(upshiftDurMap)
-print(map:get(40, 2000))
+-- Store maps
+local upshiftDurMapData = lookupMap.new(upshiftDurMapData)
+local clutchFillTimeMap = lookupMap.new(clutchFillTimeMapData)
