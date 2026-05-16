@@ -26,7 +26,7 @@ local Shifter = {
 local currentGear = 2
 local targetGear = 2
 
-local newGear = -1
+local newGear = 0
 local shiftActive = false
 local shiftStart = 0
 local shiftDuration = 500
@@ -53,7 +53,7 @@ local function startShift(from, to)
     print("startShift")
     for _, s in ipairs(shifts) do
         if s.from == from and s.to == to then
-            shiftStart = tmr.now() / 1000 -- NodeMCU uses microseconds, converting to ms
+            shiftStart = tmr.now() / 1000
             gpio.write(s.pin, gpio.HIGH)
             shiftDuration = readMap(upshiftDurMap, pedalPosition, engineSpeed)
             print("Solenoid HIGH: " .. s.pin)
