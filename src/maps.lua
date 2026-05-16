@@ -61,6 +61,20 @@ local clutchFillTimeMapData = { -- ATF Temp (°C), Clutches and Brakes in order,
     820, 680, 260, 120  -- B2 brake
 }
 
+local TCC2PWM = { -- Pressure (Unit: Bar, Factor: 0.005), ATF Temp (Unit: °C, Offset: -50), PWM Duty Cycle (Unit: Number 0-255, Factor: 0.003906)
+    7, 5,
+
+    0, 400, 800, 1000, 1500, 2000, 3000,
+    
+    50,	80,	110, 140, 170,
+
+    0,	7680,	15360,	20480,	30720,	40960,	64535,
+    0,	8960,	16640,	20480,	30720,	40960,	64535,
+    0,	10240,	17920,	20480,	30720,	40960,	64535,
+    0,	10240,	17920,	20480,	30720,	40960,	64535,
+    0,	10240,	17920,	20480,	30720,	40960,	64535,
+}
+
 local lookupMap = {}
 lookupMap.__index = lookupMap
 

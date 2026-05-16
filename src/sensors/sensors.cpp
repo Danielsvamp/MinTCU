@@ -1,10 +1,5 @@
-
-
-
-
-
-
-
+#include <Arduino.h>
+#include <stdint.h>
 
 class nSensor {
   public:
@@ -17,7 +12,7 @@ class nSensor {
     uint16_t current_rpm = 0;
 
     // The Constructor (The .new equivalent)
-    SpeedSensor(uint16_t pulses_per_rev) {
+    uint16_t newSensor(uint16_t pulses_per_rev) {
         ppr = pulses_per_rev;
     }
 
