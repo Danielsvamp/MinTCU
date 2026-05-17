@@ -12,7 +12,7 @@ end
 
 -- PREPARE FOR SHIFT 
 -- Phase 0 Bleed: SPC pressure ramps from "SPC_MAX" to "high fill pressure" over time "60 ms", MPC holds releasing clutch
---      Wait for timer
+-- Wait for timer
 
 -- Shift solenoid ON here
 
