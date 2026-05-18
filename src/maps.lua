@@ -75,10 +75,10 @@ local tccPWM = { -- Pressure (Unit: Bar, Factor: 0.005), ATF Temp (Unit: °C, Of
     0,	10240,	17920,	20480,	30720,	40960,	64535,
 }
 
-local tccPWM = { -- Pressure (Unit: Bar, Factor: 0.005), ATF Temp (Unit: °C, Offset: -50), PWM Duty Cycle (Unit: Number 0-255, Factor: 0.003906)
-    7, 5,
+local tccPWM = { -- Clutches in order K1-B3, Gears in order (N, D1-D5, R1-R2), Raw value for factor
+    6, 8,
 
-    0, 400, 800, 1000, 1500, 2000, 3000,
+    K1, K2, K3, B1, B2, B3,
     
     50,	80,	110, 140, 170,
 
