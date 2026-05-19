@@ -37,6 +37,113 @@ end
 --[[    TODO
 
     Define "p_clutch_with_coef", Pressure from Torque
+    Define parts for above function
+    
+    GearboxGear = Enum with possible gears, First, ..., Fifth, Reverse_First, Reverse_Second, P, N, SNA
+    Clutch = Enum with possible clutches, K1, K2, K3, B1, B2, B3
+    CoefficientTy = Enum with possible clutch states, Static, Release, Sliding
+    Torque = A torque value in Nm
+    gear_to_idx_lookup() = Returns a gear as uint8_t 0-7 (common_structs_ops.h and .cpp)
+    x_coefficient() = Returns a float defined by calibration data (?)
+    MECH_PTR = Mechanical calibration
+    friction_map = Map from EGS calibration data
+    
+    
+    
+    
+    
+    
+    Define "find_working_mpc_pressure"
+    Define parts for above function
+     
+    uint16_t find_working_mpc_pressure(GearboxGear curr_g, bool flush_logic = false);
+    
+    flush_logic = ?
+    mpc_flush_timer = ?
+    
+    gear_idx = uint8_t gear
+    strongest_loaded_clutch_idx = 
+    
+    
+    
+    uint16_t PressureManager::find_working_mpc_pressure(GearboxGear curr_g, bool flush_logic) {
+    if (flush_logic) {
+        if (0 != this->mpc_flush_timer) {
+            this->mpc_flush_timer -= 1;
+        }
+    }
+    uint8_t gear_idx = gear_to_idx_lookup(curr_g);
+    uint16_t output = 0;
+    uint8_t clutch_idx = MECH_PTR->strongest_loaded_clutch_idx[gear_idx];
+    if (gear_idx == 0 || clutch_idx >= 6) {
+        // N,P,SNV
+        output = 0;
+    } else {   
+        float ret = p_clutch_with_coef(curr_g, (Clutch)clutch_idx, abs(sensor_data->input_torque), CoefficientTy::Static);
+        ret += (MECH_PTR->release_spring_pressure[clutch_idx] + HYDR_PTR->extra_p_not_shifting);
+        if (curr_g == GearboxGear::First || curr_g == GearboxGear::Reverse_First) {
+            ret *= (HYDR_PTR->p_multi_1 / 1000.0);
+        } else {
+            ret *= (HYDR_PTR->p_multi_other / 1000.0);
+        }
+        if (ret < HYDR_PTR->lp_reg_spring_pressure) {
+            ret = 0;
+        } else {
+            ret -= HYDR_PTR->lp_reg_spring_pressure;
+        }
+        output = ret;
+    }
+    // Clamping pressures
+    if (output > get_max_solenoid_pressure()) {
+        output = get_max_solenoid_pressure();
+    }
+    // MPC pressure surge reduction
+    // - Reduces the slow buildup of pressure when we are working
+    //   below min MPC pressure
+    if (
+        flush_logic &&
+        (this->target_modulating_pressure < HYDR_PTR->min_mpc_pressure) && // Last call was below min
+        (0 == output) && // Current call is 0 pressure
+        ((sensor_data->atf_temp+50) >= HYDR_PTR->mpc_flush_temp_threshold) && // +50 to convert between our temperature and EGS Cal
+        (0 != HYDR_PTR->mpc_no_flush_time)// MPC Flushing is enabled for this box
+    ) {
+        if (!this->mpc_flushing) {
+            if (0 == this->mpc_flush_timer) {
+                this->mpc_flushing = true;
+                this->mpc_flush_timer = HYDR_PTR->mpc_flush_time;
+            }
+        } else if (0 == this->mpc_flush_timer) {
+            this->mpc_flushing = false;
+            this->mpc_flush_timer = HYDR_PTR->mpc_no_flush_time;
+        }
+    } else {
+        this->mpc_flushing = false;
+        this->mpc_flush_timer = 0;
+    }
+
+    if (false == this->mpc_flushing) {
+        output = MAX(output, HYDR_PTR->min_mpc_pressure);
+    }
+    if (output < this->target_modulating_pressure) {
+        // Filter when decreasing pressure, instant rise in pressure
+        output = first_order_filter(HYDR_PTR->filter_factor, output, this->target_modulating_pressure);
+    }
+
+    return output;
+}
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
     
     From UN52's pressure_manager.h:
     
@@ -46,8 +153,6 @@ end
     Clutch = Enum with possible clutches, K1, K2, K3, B1, B2, B3
     CoefficientTy = Enum with possible clutch states, Static, Release, Sliding
     Torque = A torque value in Nm
-
-
 
     From UN52's pressure_manager.cpp:
 uint16_t PressureManager::p_clutch_with_coef(GearboxGear gear, Clutch clutch, uint16_t abs_torque_nm, CoefficientTy coef_ty) {
@@ -72,7 +177,10 @@ uint16_t PressureManager::p_clutch_with_coef(GearboxGear gear, Clutch clutch, ui
 }
 
     gear_to_idx_lookup() = Returns a gear as uint8_t 0-7 (common_structs_ops.h and .cpp)
-    x_coefficient() = Returns a value defined by calibration data
+    x_coefficient() = Returns a float defined by calibration data (?)
+    MECH_PTR = Mechanical calibration
+    friction_map = Map from EGS calibration data
+    
 
 
 --]]
