@@ -37,34 +37,65 @@ end
 --[[    TODO
 
     Define "p_clutch_with_coef", Pressure from Torque
+    uint16_t p_clutch_with_coef(GearboxGear gear, Clutch clutch, uint16_t abs_torque_nm, CoefficientTy coef_ty);
+    
+        Function returns uint16_t "calc", a pressure in (unit?)
+    
     Define parts for above function
     
-    GearboxGear = Enum with possible gears, First, ..., Fifth, Reverse_First, Reverse_Second, P, N, SNA
-    Clutch = Enum with possible clutches, K1, K2, K3, B1, B2, B3
-    CoefficientTy = Enum with possible clutch states, Static, Release, Sliding
-    Torque = A torque value in Nm
-    gear_to_idx_lookup() = Returns a gear as uint8_t 0-7 (common_structs_ops.h and .cpp)
-    x_coefficient() = Returns a float defined by calibration data (?)
-    MECH_PTR = Mechanical calibration
-    friction_map = Map from EGS calibration data
+        GearboxGear = Enum with possible gears, First, ..., Fifth, Reverse_First, Reverse_Second, P, N, SNA
+        Clutch = Enum with possible clutches, K1, K2, K3, B1, B2, B3
+        CoefficientTy = Enum with possible clutch states, Static, Release, Sliding
+        Torque = A torque value in Nm
+        gear_to_idx_lookup() = Returns a gear as uint8_t 0-7 (common_structs_ops.h and .cpp)
+        x_coefficient() = Returns a float defined by calibration data (?)
+        MECH_PTR = Mechanical calibration
+        friction_map = Map from EGS calibration data
     
+    ---
     
+   
     
+    ---
     
     
     
     Define "find_working_mpc_pressure"
-    Define parts for above function
-     
     uint16_t find_working_mpc_pressure(GearboxGear curr_g, bool flush_logic = false);
     
-    flush_logic = ?
-    mpc_flush_timer = ?
+        Function returns uint16_t "output", a pressure
+        
+        output = 0 if (gear == 0 or clutch >= 6)
+        else
+        output = ret
+        
     
-    gear_idx = uint8_t gear
-    strongest_loaded_clutch_idx = 
+    Define parts for above function
+     
+        I will ignore flush functionality for now
     
+        gear_idx = uint8_t gear
+        clutch_idx = uint8_t clutch
+        lp_reg_spring_pressure =  Variable from EGS calibration
+        p_multi_1 = Variable from EGS calibration
+        p_multi_other = Variable from EGS calibration
+        strongest_loaded_clutch_idx = Map from EGS calibration data, returns clutch(?) from gear_idx
+        p_clutch_with_coef = Function explained above
+        release_spring_pressure = Map from EGS calibration data, returns pressure(?) from clutch_idx
+        
+        ret = Stores returned pressure value throughout the function.
+        
+        ret = (p_clutch_with_coef + strongest_loaded_clutch_idx),
+        
+        if curr_g is first or reversefirst then ret *= p_multi_1 / 1000.0
+        else ret *= p_multi_other / 1000.0,
+        
+        if ret < lp_reg_spring_pressure then ret = 0
+        else ret -= lp_reg_spring_pressure
+        
+        So the function returns
     
+    ---
     
     uint16_t PressureManager::find_working_mpc_pressure(GearboxGear curr_g, bool flush_logic) {
     if (flush_logic) {
@@ -146,8 +177,6 @@ end
     
     
     From UN52's pressure_manager.h:
-    
-    uint16_t p_clutch_with_coef(GearboxGear gear, Clutch clutch, uint16_t abs_torque_nm, CoefficientTy coef_ty);
     
     GearboxGear = Enum with possible gears, First, ..., Fifth, Reverse_First, Reverse_Second, P, N, SNA
     Clutch = Enum with possible clutches, K1, K2, K3, B1, B2, B3
