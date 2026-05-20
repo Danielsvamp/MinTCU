@@ -2,11 +2,17 @@
 // Nu skaja faktist fösök få na ådentli byrjan
 // Ja ska ha MPC ti arbeit från kalibrering å sensore
 
+// Calibration
+typedef struct {
+    uint16_t friction_map[48];
+} __attribute__((packed)) calibrationData;
+
+calibrationData* calibrationPointer =  
+
 struct ShiftInterfaceData {
     int MOD_MAX;
     int SPC_MAX;
     GearboxGear curr_g;
-    GearboxGear targ_g;
 };
 
 protected:
@@ -16,27 +22,11 @@ protected:
 uint8_t gear_to_idx_lookup(GearboxGear g) {
     uint8_t gear_idx = 0;
     switch(g) {
-        case GearboxGear::First:
-            gear_idx = 1;
-            break;
+
         case GearboxGear::Second:
             gear_idx = 2;
             break;
-        case GearboxGear::Third:
-            gear_idx = 3;
-            break;
-        case GearboxGear::Fourth:
-            gear_idx = 4;
-            break;
-        case GearboxGear::Fifth:
-            gear_idx = 5;
-            break;
-        case GearboxGear::Reverse_First:
-            gear_idx = 6;
-            break;
-        case GearboxGear::Reverse_Second:
-            gear_idx = 7;
-            break;
+
         case GearboxGear::Park:
         case GearboxGear::Neutral:
         case GearboxGear::SignalNotAvailable:
