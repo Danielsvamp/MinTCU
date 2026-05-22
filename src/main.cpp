@@ -2,40 +2,35 @@
 // Nu skaja faktist fösök få na ådentli byrjan
 // Ja ska ha MPC ti arbeit från kalibrering å sensore
 
-// Calibration
-typedef struct {
-    uint16_t friction_map[48];
-} __attribute__((packed)) calibrationData;
+// Calibration - KL = kennlinie, KF = kennfeld
+uint16_t frictionKF[48];
 
-calibrationData* calibrationPointer =  
-
-struct ShiftInterfaceData {
-    int MOD_MAX;
-    int SPC_MAX;
-    GearboxGear curr_g;
-};
-
-protected:
-    ShiftInterfaceData* sid;
-};
-
-uint8_t gear_to_idx_lookup(GearboxGear g) {
-    uint8_t gear_idx = 0;
+uint8_t getGearId(GearboxGear g) {
+    uint8_t gearId = 0;
     switch(g) {
-
         case GearboxGear::Second:
-            gear_idx = 2;
+            gearId = 2;
             break;
-
+        case GearboxGear::ReverseFirst:
+            gearId = 6;
+            break;
         case GearboxGear::Park:
         case GearboxGear::Neutral:
         case GearboxGear::SignalNotAvailable:
         default:
-            gear_idx = 0;
+            gearId = 0;
             break;
     }
-    return gear_idx;
+    return gearId;
 }
+
+enum class GearboxGear: uint8_t {
+    Second = 2,
+    Park = 8,
+    Neutral = 9,
+    ReverseFirst = 10,
+    SignalNotAvailable = 0xFF
+};
 
 enum class Clutch {
     K1 = 0,
@@ -46,20 +41,28 @@ enum class Clutch {
     B3 = 5
 };
 
-uint16_t PressureManager::p_clutch_with_coef(GearboxGear gear, Clutch clutch, uint16_t abs_torque_nm) {
-    uint8_t gear_idx = gear_to_idx_lookup(gear);
+class PressureManager {
+
+public: 
+
+    uint16_t pFromTorque(GearboxGear gear, Clutch clutch, uint16_t torque);
+    
+}
+    
+uint16_t PressureManager::pFromTorque(GearboxGear gear, Clutch clutch, uint16_t torque) {
+    uint8_t gearId = getGearId(gear);
     
     float coef;
     coef = 1.F;
     
-    float friction_val = MECH_PTR->friction_map[(gear_idx*6)+(uint8_t)clutch];
-    float calc = ((float)abs_torque_nm * friction_val) / coef;
+    float friction = frictionKF[(gearId*6)+(uint8_t)clutch];
+    float calc = ((float)torque * friction) / coef;
     return calc;
 }
 
 
-// Example call
-p_clutch_with_coef(sid->targ_g, sid->applying, this->abs_input_trq)
+// p_clutch_with_coef call
+p_clutch_with_coef(GearboxGear::Second, Clutch::K1, torque)
 
 
 

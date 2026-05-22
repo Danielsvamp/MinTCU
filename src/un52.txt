@@ -1,0 +1,43 @@
+set_target_modulating_pressure(mpc_working)  
+        │  
+        │  (just stores the value)  
+        ▼  
+update_pressures(current_gear, change_state)   ← called each loop iteration  
+        │  
+        ├─► calc_current_linear_sol(target_modulating_pressure, gear, change_state)  
+        │           │  
+        │           │  1. Pick hydraulic factor (p_multi_1 or p_multi_other) based on gear  
+        │           │  2. line_pressure = (lp_reg_spring_pressure + target_modulating_pressure) * 1000  
+        │           │  3. working_pressure = extra_p + (line_pressure / factor)  
+        │           │  4. Interpolate working_pressure → inlet_pressure  
+        │           │  5. Apply inlet correction → corrected_mpc_pressure (mbar)  
+        │           ▼  
+        │       corrected_mpc_pressure  
+        │  
+        ├─► pressure_pwm_map->get_value(corrected_mpc_pressure, atf_temp+50)  
+        │           │  
+        │           │  LookupRefMap from HYDR_PTR->pcs_map_x/y/z (7×4 table)  
+        │           │  Maps (pressure mbar, temperature °C) → current mA  
+        │           ▼  
+        │       target_mA  
+        │  
+        └─► sol_mpc->set_current_target(target_mA)  
+                    │  
+                    │  (just stores the mA target)  
+                    ▼  
+            ConstantCurrentSolenoid::current_target  
+  
+─────────────────────────────────────────────────────  
+Separate FreeRTOS task: read_solenoids_i2s (core 1)  
+─────────────────────────────────────────────────────  
+        │  
+        ├─► ADC reads actual solenoid current  
+        │  
+        └─► update_when_reading(battery_mv)  
+                    │  
+                    │  1. max_current = battery_mv / cc_reference_resistance  
+                    │  2. targ_pwm = 4096 * (current_target / max_current)  
+                    │  3. Apply trim factor (closed-loop error correction)  
+                    │  4. ledc_set_duty() + ledc_update_duty()  
+                    ▼  
+                Hardware PWM (0–4096 duty cycle)  

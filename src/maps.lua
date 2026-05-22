@@ -80,7 +80,7 @@ local tccPWM = { -- Clutches in order K1-B3, Gears in order (N, D1-D5, R1-R2), R
 
     K1, K2, K3, B1, B2, B3,
     
-    50,	80,	110, 140, 170,
+    1, 2, 3, 4, 5, 6, 7, 8
 
     4709,	0,	    0,	    3574,	0,  	0,
     0,	    0,	    3076,	2303,	2685,	0,
