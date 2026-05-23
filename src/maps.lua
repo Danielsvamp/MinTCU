@@ -75,7 +75,7 @@ local tccPWM = { -- Pressure (Unit: Bar, Factor: 0.005), ATF Temp (Unit: °C, Of
     0,	10240,	17920,	20480,	30720,	40960,	64535,
 }
 
-local friction = { -- Clutches in order K1-B3, Gears in order (N, D1-D5, R1-R2), Raw value for factor
+local clutchFriction = { -- Clutches in order K1-B3, Gears in order (N, D1-D5, R1-R2), Raw value for factor
     6, 8,
 
     K1, K2, K3, B1, B2, B3,
@@ -90,6 +90,19 @@ local friction = { -- Clutches in order K1-B3, Gears in order (N, D1-D5, R1-R2),
     0,	    1390,	807,	604,	0,	    0,
     0,	    0,	    3076,	2303,	0,	    3387,
     1845,	0,	    1871,	0,	    0,	    2060,
+}
+
+local pcs = { -- Pressure in mbar, ATF Temp in C, Current in mA(?)
+    7, 4,
+
+    50, 600, 1000, 2350, 5600, 6600, 7700,
+    
+    25, 70, 110, 200, -- These are raw values, true temperature is offset by -50
+
+    1100,	1085,	954,	700,	450,	350,	200,
+    1077,	925,	830,	675,	415,	320,	0,
+    1000,	835,	780,	650,	400,	288,	0,
+    975,	795,	745,	625,	370,	260,	0,
 }
 
 local lookupMap = {}

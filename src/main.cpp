@@ -32,6 +32,19 @@ uint16_t clutchFrictionKF[48] = {
     1845,	0,	    1871,	0,	    0,	    2060,   // -2
 };
 
+uint16_t pcsKF[48] = { // Pressure in mbar, ATF Temp in C, Current in mA(?)
+    //7, 4,
+
+    //50, 600, 1000, 2350, 5600, 6600, 7700,
+    
+    //25, 70, 110, 200, // These are raw values, true temperature is offset by -50
+
+    1100,	1085,	954,	700,	450,	350,	200,
+    1077,	925,	830,	675,	415,	320,	0,
+    1000,	835,	780,	650,	400,	288,	0,
+    975,	795,	745,	625,	370,	260,	0,
+};
+
 enum class GearboxGear: uint8_t {
     First = 1,
     Second = 2,
@@ -97,20 +110,21 @@ public:
     
     uint32_t pFromTorque(GearboxGear gear, Clutch clutch, uint16_t torque, clutchCoefType coefType);
     
+
+    // Returns the estimated PWM to send to either SPC or MPC solenoid
+    // Based on the requested pressure that is needed withint either pressure rail.
+    uint16_t getSolenoidCurrent(uint16_t request_mbar) const;
 };
-    
+
 uint8_t PressureManager::sliding_coefficient() const {
     return 140;
 }
-
 uint8_t PressureManager::release_coefficient() const {
     return 120;
 }
-
 uint8_t PressureManager::stationary_coefficient() const {
     return 100;
 }
-
 
 uint32_t PressureManager::pFromTorque(GearboxGear gear, Clutch clutch, uint16_t torque, clutchCoefType coefType) {
     uint8_t gearId = getGearId(gear);
@@ -135,27 +149,56 @@ uint32_t PressureManager::pFromTorque(GearboxGear gear, Clutch clutch, uint16_t 
     return (uint16_t)calc;
 }
 
+uint16_t PressureManager::getSolenoidCurrent(uint16_t request_mbar) const {
+    if (this->pressure_pwm_map == nullptr) {
+        return 0; // 10% (Failsafe)
+    }
+    return this->pressure_pwm_map->get_value(request_mbar, this->sensor_data->atf_temp);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+// v Arduino testing v
+
 void setup() {
     Serial.begin(115200);
 }
 
-void loop(){
-    delay(1000);
+PressureManager pm;
+uint16_t torque = 0;
+GearboxGear gear = GearboxGear::Second;
+Clutch clutch = Clutch::K3;
 
-    // p_clutch_with_coef call
+void loop_(){
+    delay(500);
 
-    PressureManager pm;
-    uint16_t torque = 650;
+    if (torque >= 1000) {
+        torque = 0;
+    }   else {
+        torque += 50;
+    }
+    // "p_clutch_with_coef" call
+    //uint16_t pressure = pm.pFromTorque(gear, clutch, torque, clutchCoefType::Static);
+    //Serial.print("Torque: ");
+    //Serial.print(torque);
+    //Serial.print(" Nm | Pressure: ");
+    //Serial.print(pressure);
+    //Serial.print(" | Clutch friction value: ");
+    //Serial.print(clutchFrictionKF[(getGearId(gear) * 6) + (uint8_t)clutch]);
+    //Serial.println();
 
-    GearboxGear gear = GearboxGear::Fourth;
-    Clutch clutch = Clutch::K2;
-
-    uint32_t pressure = pm.pFromTorque(gear, clutch, torque, clutchCoefType::Static);
-    Serial.print("pFromTorque: ");
-    Serial.print(pressure);
-    Serial.print(" | raw friction lookup: ");
-    Serial.print(clutchFrictionKF[(getGearId(gear) * 6) + (uint8_t)clutch]);
-    Serial.println();
+    // "get_p_solenoid_current" call
+    uint16_t current = pm.getSolenoidCurrent() const;
 }
 
 
