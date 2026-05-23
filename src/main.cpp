@@ -1,9 +1,23 @@
+#include <Arduino.h>
+#include <stdint.h>
+#undef B1
 
 // Nu skaja faktist fösök få na ådentli byrjan
 // Ja ska ha MPC ti arbeit från kalibrering å sensore
 
-// Calibration - KL = kennlinie, KF = kennfeld
-uint16_t frictionKF[48];
+//v Calibration v
+
+//Per clutch friction map
+uint16_t clutchFrictionKF[48];
+
+enum class GearboxGear: uint8_t {
+    Second = 2,
+    Park = 8,
+    Neutral = 9,
+    ReverseFirst = 10,
+    SignalNotAvailable = 0xFF
+};
+
 
 uint8_t getGearId(GearboxGear g) {
     uint8_t gearId = 0;
@@ -24,14 +38,6 @@ uint8_t getGearId(GearboxGear g) {
     return gearId;
 }
 
-enum class GearboxGear: uint8_t {
-    Second = 2,
-    Park = 8,
-    Neutral = 9,
-    ReverseFirst = 10,
-    SignalNotAvailable = 0xFF
-};
-
 enum class Clutch {
     K1 = 0,
     K2 = 1,
@@ -41,13 +47,14 @@ enum class Clutch {
     B3 = 5
 };
 
+
 class PressureManager {
 
 public: 
 
     uint16_t pFromTorque(GearboxGear gear, Clutch clutch, uint16_t torque);
     
-}
+};
     
 uint16_t PressureManager::pFromTorque(GearboxGear gear, Clutch clutch, uint16_t torque) {
     uint8_t gearId = getGearId(gear);
@@ -55,14 +62,28 @@ uint16_t PressureManager::pFromTorque(GearboxGear gear, Clutch clutch, uint16_t 
     float coef;
     coef = 1.F;
     
-    float friction = frictionKF[(gearId*6)+(uint8_t)clutch];
+    float friction = clutchFrictionKF[(gearId*6)+(uint8_t)clutch];
     float calc = ((float)torque * friction) / coef;
     return calc;
 }
 
+void setup() {
+    // p_clutch_with_coef call
 
-// p_clutch_with_coef call
-p_clutch_with_coef(GearboxGear::Second, Clutch::K1, torque)
+    PressureManager pm;
+    uint16_t torque = 100;
+
+    uint16_t pressure = pm.pFromTorque(GearboxGear::Second, Clutch::K1, torque);
+    Serial.print(pressure);
+
+    
+}
+
+
+
+
+
+
 
 
 
