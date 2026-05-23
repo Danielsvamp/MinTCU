@@ -52,7 +52,7 @@ shiftCalibration shifts[] = {
   {5, 4, shift12_45, 500},
 };
 
-void setup() {
+void setup_old() {
   Serial.begin(115200);
 
   pinMode(shift23, OUTPUT);
@@ -129,7 +129,7 @@ void handleShifterMessage(uint8_t msg) {
   }
 }
 
-void loop() {
+void loop_old() {
   if (shiftActive && millis() - shiftStart >= shiftDuration) {
     digitalWrite(shift12_45, LOW);
     digitalWrite(shift23, LOW);
