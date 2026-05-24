@@ -113,7 +113,8 @@ public:
 
     // Returns the estimated PWM to send to either SPC or MPC solenoid
     // Based on the requested pressure that is needed withint either pressure rail.
-    uint16_t getSolenoidCurrent(uint16_t request_mbar) const;
+
+    uint16_t find_working_mpc_pressure(GearboxGear curr_g, bool flush_logic = false);
 };
 
 uint8_t PressureManager::sliding_coefficient() const {
@@ -149,13 +150,6 @@ uint32_t PressureManager::pFromTorque(GearboxGear gear, Clutch clutch, uint16_t 
     return (uint16_t)calc;
 }
 
-uint16_t PressureManager::getSolenoidCurrent(uint16_t request_mbar) const {
-    if (this->pressure_pwm_map == nullptr) {
-        return 0; // 10% (Failsafe)
-    }
-    return this->pressure_pwm_map->get_value(request_mbar, this->sensor_data->atf_temp);
-}
-
 
 
 
@@ -179,27 +173,7 @@ uint16_t torque = 0;
 GearboxGear gear = GearboxGear::Second;
 Clutch clutch = Clutch::K3;
 
-void loop_(){
-    delay(500);
 
-    if (torque >= 1000) {
-        torque = 0;
-    }   else {
-        torque += 50;
-    }
-    // "p_clutch_with_coef" call
-    //uint16_t pressure = pm.pFromTorque(gear, clutch, torque, clutchCoefType::Static);
-    //Serial.print("Torque: ");
-    //Serial.print(torque);
-    //Serial.print(" Nm | Pressure: ");
-    //Serial.print(pressure);
-    //Serial.print(" | Clutch friction value: ");
-    //Serial.print(clutchFrictionKF[(getGearId(gear) * 6) + (uint8_t)clutch]);
-    //Serial.println();
-
-    // "get_p_solenoid_current" call
-    uint16_t current = pm.getSolenoidCurrent() const;
-}
 
 
 
