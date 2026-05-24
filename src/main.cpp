@@ -32,18 +32,34 @@ uint16_t clutchFrictionKF[48] = {
     1845,	0,	    1871,	0,	    0,	    2060,   // -2
 };
 
-uint16_t pcsKF[48] = { // Pressure in mbar, ATF Temp in C, Current in mA(?)
+uint16_t pcsKFx[7] = { // X axis of pcsKF. Pressure in mbar
+
+    50, 600, 1000, 2350, 5600, 6600, 7700
+};
+
+uint16_t pcsKFy[4] = { // Y axis of pcsKF. These are raw values, true temperature is offset by -50
+
+    25, 70, 110, 200
+};
+
+uint16_t pcsKFz[28] = { // Z of pcsKF. Current in mA(?)
     //7, 4,
 
-    //50, 600, 1000, 2350, 5600, 6600, 7700,
+    //50, 600, 1000, 2350, 5600, 6600, 7700
     
-    //25, 70, 110, 200, // These are raw values, true temperature is offset by -50
+    //25, 70, 110, 200
 
     1100,	1085,	954,	700,	450,	350,	200,
     1077,	925,	830,	675,	415,	320,	0,
     1000,	835,	780,	650,	400,	288,	0,
     975,	795,	745,	625,	370,	260,	0,
 };
+
+uint8_t strongest_loaded_clutch_idx[8] = { // Clutch by gear
+
+    255, 2, 2, 1, 1, 1, 2, 2
+};
+
 
 enum class GearboxGear: uint8_t {
     First = 1,
@@ -115,6 +131,15 @@ public:
     // Based on the requested pressure that is needed withint either pressure rail.
 
     uint16_t find_working_mpc_pressure(GearboxGear curr_g, bool flush_logic = false);
+
+    uint16_t getMaxPcsPressure();
+
+private:
+    // Modulating pressure
+    uint16_t target_modulating_pressure = 0;
+
+    bool mpc_flushing = false;
+    uint8_t mpc_flush_timer = 0;
 };
 
 uint8_t PressureManager::sliding_coefficient() const {
@@ -152,9 +177,75 @@ uint32_t PressureManager::pFromTorque(GearboxGear gear, Clutch clutch, uint16_t 
 
 
 
+uint16_t PressureManager::getMaxPcsPressure() {
+    return pcsKFx[6];
+}
 
+uint16_t PressureManager::find_working_mpc_pressure(GearboxGear curr_g, bool flush_logic) {
+    if (flush_logic) {
+        if (0 != this->mpc_flush_timer) {
+            this->mpc_flush_timer -= 1;
+        }
+    }
+    uint8_t gearId = getGearId(curr_g);
+    uint16_t output = 0;
+    uint8_t clutchId = MECH_PTR->strongest_loaded_clutch_idx[gearId];
+    if (gearId == 0 || clutchId >= 6) {
+        // N,P,SNV
+        output = 0;
+    } else {   
+        float ret = pFromTorque(curr_g, (Clutch)clutchId, abs(sensor_data->input_torque), clutchCoefType::Static);
+        ret += (MECH_PTR->release_spring_pressure[clutchId] + HYDR_PTR->extra_p_not_shifting);
+        if (curr_g == GearboxGear::First || curr_g == GearboxGear::ReverseFirst) {
+            ret *= (HYDR_PTR->p_multi_1 / 1000.0);
+        } else {
+            ret *= (HYDR_PTR->p_multi_other / 1000.0);
+        }
+        if (ret < HYDR_PTR->lp_reg_spring_pressure) {
+            ret = 0;
+        } else {
+            ret -= HYDR_PTR->lp_reg_spring_pressure;
+        }
+        output = ret;
+    }
+    // Clamping pressures
+    if (output > getMaxPcsPressure()) {
+        output = getMaxPcsPressure();
+    }
+    // MPC pressure surge reduction
+    // - Reduces the slow buildup of pressure when we are working
+    //   below min MPC pressure
+    if (
+        flush_logic &&
+        (this->target_modulating_pressure < HYDR_PTR->min_mpc_pressure) && // Last call was below min
+        (0 == output) && // Current call is 0 pressure
+        ((sensor_data->atf_temp+50) >= HYDR_PTR->mpc_flush_temp_threshold) && // +50 to convert between our temperature and EGS Cal
+        (0 != HYDR_PTR->mpc_no_flush_time)// MPC Flushing is enabled for this box
+    ) {
+        if (!this->mpc_flushing) {
+            if (0 == this->mpc_flush_timer) {
+                this->mpc_flushing = true;
+                this->mpc_flush_timer = HYDR_PTR->mpc_flush_time;
+            }
+        } else if (0 == this->mpc_flush_timer) {
+            this->mpc_flushing = false;
+            this->mpc_flush_timer = HYDR_PTR->mpc_no_flush_time;
+        }
+    } else {
+        this->mpc_flushing = false;
+        this->mpc_flush_timer = 0;
+    }
 
+    if (false == this->mpc_flushing) {
+        output = MAX(output, HYDR_PTR->min_mpc_pressure);
+    }
+    if (output < this->target_modulating_pressure) {
+        // Filter when decreasing pressure, instant rise in pressure
+        output = first_order_filter(HYDR_PTR->filter_factor, output, this->target_modulating_pressure);
+    }
 
+    return output;
+}
 
 
 
@@ -175,7 +266,9 @@ Clutch clutch = Clutch::K3;
 
 
 
+void loop() {
 
+};
 
 
 
