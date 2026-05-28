@@ -2,6 +2,23 @@
 #include <stdint.h>
 #undef B1
 
+
+// Math things
+#ifndef MAX
+    #define MAX(a, b) (((a) > (b)) ? (a) : (b))
+#endif
+
+#ifndef MIN
+    #define MIN(a, b) (((a) < (b)) ? (a) : (b))
+#endif
+
+int32_t first_order_filter(uint8_t sample_count, int32_t new_val, int32_t last_val) {
+    if (sample_count == 0xFF) {
+        sample_count = 0xFE;
+    }
+    return (new_val + (sample_count*last_val)) / (sample_count + 1);
+}
+
 /*
 // SHIFT PINS
 const int shift23 = 22;
@@ -27,6 +44,8 @@ enum class clutchCoefType {
     Release,
     Sliding
 };
+
+// Mechanical calibration
 
 //Per clutch friction map
 uint16_t clutchFrictionKF[48] = {
@@ -77,6 +96,7 @@ uint16_t releaseSpringPressure[6] = { // Axis - Clutches K1-B3
     1270, 846, 1205, 1139, 1289, 488
 };
 
+// Hydraulic calibration
 uint16_t extraPressureNotShifting = 1000;
 
 uint16_t p_multi_1 = 1000;
@@ -90,6 +110,7 @@ uint8_t mpc_flush_temp_threshold = 100;
 uint16_t mpc_no_flush_time = 1000;
 uint16_t mpc_flush_time = 1000;
 
+uint8_t filter_factor;
 
 
 enum class GearboxGear: uint8_t {
