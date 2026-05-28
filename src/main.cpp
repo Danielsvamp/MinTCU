@@ -186,6 +186,9 @@ public:
 
     uint16_t getMaxPcsPressure();
 
+    uint16_t inputTorque = 0;
+    uint16_t atfTemp = 0;
+
 private:
     // Modulating pressure
     uint16_t target_modulating_pressure = 0;
@@ -246,7 +249,7 @@ uint16_t PressureManager::find_working_mpc_pressure(GearboxGear curr_g, bool flu
         // N,P,SNV
         output = 0;
     } else {   
-        float ret = pFromTorque(curr_g, (Clutch)clutchId, abs(sensor_data->input_torque), clutchCoefType::Static);
+        float ret = pFromTorque(curr_g, (Clutch)clutchId, abs(inputTorque), clutchCoefType::Static);
         ret += (releaseSpringPressure[clutchId] + extraPressureNotShifting);
         if (curr_g == GearboxGear::First || curr_g == GearboxGear::ReverseFirst) {
             ret *= (p_multi_1 / 1000.0);
@@ -271,7 +274,7 @@ uint16_t PressureManager::find_working_mpc_pressure(GearboxGear curr_g, bool flu
         flush_logic &&
         (this->target_modulating_pressure < min_mpc_pressure) && // Last call was below min
         (0 == output) && // Current call is 0 pressure
-        ((sensor_data->atf_temp+50) >= mpc_flush_temp_threshold) && // +50 to convert between our temperature and EGS Cal
+        ((atfTemp+50) >= mpc_flush_temp_threshold) && // +50 to convert between our temperature and EGS Cal
         (0 != mpc_no_flush_time)// MPC Flushing is enabled for this box
     ) {
         if (!this->mpc_flushing) {
