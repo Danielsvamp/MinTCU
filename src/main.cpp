@@ -2,9 +2,23 @@
 #include <stdint.h>
 #undef B1
 
-// Nu skaja faktist fösök få na ådentli byrjan
-// Ja ska ha MPC ti arbeit från kalibrering å sensore
-// Allt ska lånas från UN52 så langt he ba gar, fö he funkkar
+/*
+// SHIFT PINS
+const int shift23 = 22;
+const int shift34 = 23;
+const int shift12_45 = 24;
+
+// PWM PINS
+const int mpc = 11;
+const int spc = 12;
+const int tcc = 13;
+*/
+
+/*
+    Nu skaja faktist fösök få na ådentli byrjan
+    Ja ska ha MPC ti arbeit från kalibrering å sensore
+    Allt ska lånas från UN52 så langt he ba gar, fö he funkkar
+*/
 
 //v Calibration v
 
