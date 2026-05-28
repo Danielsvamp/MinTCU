@@ -69,10 +69,27 @@ uint16_t pcsKFz[28] = { // Z of pcsKF. Current in mA(?)
     975,	795,	745,	625,	370,	260,	0,
 };
 
-uint8_t strongest_loaded_clutch_idx[8] = { // Clutch by gear
-
+uint8_t strongestClutchKL[8] = { // Axis - Gears 0, 1, 2, 3, 4, 5, -1, -2
     255, 2, 2, 1, 1, 1, 2, 2
 };
+
+uint16_t releaseSpringPressure[6] = { // Axis - Clutches K1-B3
+    1270, 846, 1205, 1139, 1289, 488
+};
+
+uint16_t extraPressureNotShifting = 1000;
+
+uint16_t p_multi_1 = 1000;
+uint16_t p_multi_other = 1000;
+
+uint16_t lp_reg_spring_pressure = 1000;
+
+uint16_t min_mpc_pressure = 500;
+
+uint8_t mpc_flush_temp_threshold = 100;
+uint16_t mpc_no_flush_time = 1000;
+uint16_t mpc_flush_time = 1000;
+
 
 
 enum class GearboxGear: uint8_t {
@@ -203,22 +220,22 @@ uint16_t PressureManager::find_working_mpc_pressure(GearboxGear curr_g, bool flu
     }
     uint8_t gearId = getGearId(curr_g);
     uint16_t output = 0;
-    uint8_t clutchId = MECH_PTR->strongest_loaded_clutch_idx[gearId];
+    uint8_t clutchId = strongestClutchKL[gearId];
     if (gearId == 0 || clutchId >= 6) {
         // N,P,SNV
         output = 0;
     } else {   
         float ret = pFromTorque(curr_g, (Clutch)clutchId, abs(sensor_data->input_torque), clutchCoefType::Static);
-        ret += (MECH_PTR->release_spring_pressure[clutchId] + HYDR_PTR->extra_p_not_shifting);
+        ret += (releaseSpringPressure[clutchId] + extraPressureNotShifting);
         if (curr_g == GearboxGear::First || curr_g == GearboxGear::ReverseFirst) {
-            ret *= (HYDR_PTR->p_multi_1 / 1000.0);
+            ret *= (p_multi_1 / 1000.0);
         } else {
-            ret *= (HYDR_PTR->p_multi_other / 1000.0);
+            ret *= (p_multi_other / 1000.0);
         }
-        if (ret < HYDR_PTR->lp_reg_spring_pressure) {
+        if (ret < lp_reg_spring_pressure) {
             ret = 0;
         } else {
-            ret -= HYDR_PTR->lp_reg_spring_pressure;
+            ret -= lp_reg_spring_pressure;
         }
         output = ret;
     }
@@ -231,19 +248,19 @@ uint16_t PressureManager::find_working_mpc_pressure(GearboxGear curr_g, bool flu
     //   below min MPC pressure
     if (
         flush_logic &&
-        (this->target_modulating_pressure < HYDR_PTR->min_mpc_pressure) && // Last call was below min
+        (this->target_modulating_pressure < min_mpc_pressure) && // Last call was below min
         (0 == output) && // Current call is 0 pressure
-        ((sensor_data->atf_temp+50) >= HYDR_PTR->mpc_flush_temp_threshold) && // +50 to convert between our temperature and EGS Cal
-        (0 != HYDR_PTR->mpc_no_flush_time)// MPC Flushing is enabled for this box
+        ((sensor_data->atf_temp+50) >= mpc_flush_temp_threshold) && // +50 to convert between our temperature and EGS Cal
+        (0 != mpc_no_flush_time)// MPC Flushing is enabled for this box
     ) {
         if (!this->mpc_flushing) {
             if (0 == this->mpc_flush_timer) {
                 this->mpc_flushing = true;
-                this->mpc_flush_timer = HYDR_PTR->mpc_flush_time;
+                this->mpc_flush_timer = mpc_flush_time;
             }
         } else if (0 == this->mpc_flush_timer) {
             this->mpc_flushing = false;
-            this->mpc_flush_timer = HYDR_PTR->mpc_no_flush_time;
+            this->mpc_flush_timer = mpc_no_flush_time;
         }
     } else {
         this->mpc_flushing = false;
@@ -251,11 +268,11 @@ uint16_t PressureManager::find_working_mpc_pressure(GearboxGear curr_g, bool flu
     }
 
     if (false == this->mpc_flushing) {
-        output = MAX(output, HYDR_PTR->min_mpc_pressure);
+        output = MAX(output, min_mpc_pressure);
     }
     if (output < this->target_modulating_pressure) {
         // Filter when decreasing pressure, instant rise in pressure
-        output = first_order_filter(HYDR_PTR->filter_factor, output, this->target_modulating_pressure);
+        output = first_order_filter(filter_factor, output, this->target_modulating_pressure);
     }
 
     return output;
