@@ -11,6 +11,7 @@
 #include <Arduino.h>
 #include <stdint.h>
 #include <common.h>
+#include <maplookup.cpp>
 #undef B1
 
 
@@ -72,30 +73,6 @@ struct MechanicalCalibration {
         1845,	0,	    1871,	0,	    0,	    2060,   // -2
     };
 
-    // Pressure solenoid current map
-    uint16_t pcsKFx[7] = { // X axis of pcsKF. Pressure in mbar
-
-        50, 600, 1000, 2350, 5600, 6600, 7700
-    };
-
-    uint16_t pcsKFy[4] = { // Y axis of pcsKF. These are raw values, true temperature is offset by -50
-
-        25, 70, 110, 200
-    };
-
-    uint16_t pcsKFz[28] = { // Z of pcsKF. Current in mA(?)
-        //7, 4,
-
-        //50, 600, 1000, 2350, 5600, 6600, 7700
-        
-        //25, 70, 110, 200
-
-        1100,	1085,	954,	700,	450,	350,	200,
-        1077,	925,	830,	675,	415,	320,	0,
-        1000,	835,	780,	650,	400,	288,	0,
-        975,	795,	745,	625,	370,	260,	0,
-    };
-
     //fix this
     uint16_t tccKF[35] = { // Z of pcsKF. Current in mA(?)
         //7, 4,
@@ -150,6 +127,30 @@ struct HydraulicCalibration {
     uint16_t inlet_pressure_input_max = 0;
     uint16_t inlet_pressure_output_min = 0;
     uint16_t inlet_pressure_output_max = 0;
+
+    // Pressure solenoid current map
+    uint16_t pcsKFx[7] = { // X axis of pcsKF. Pressure in mbar
+
+        50, 600, 1000, 2350, 5600, 6600, 7700
+    };
+
+    uint16_t pcsKFy[4] = { // Y axis of pcsKF. These are raw values, true temperature is offset by -50
+
+        25, 70, 110, 200
+    };
+
+    uint16_t pcsKFz[28] = { // Z of pcsKF. Current in mA(?)
+        //7, 4,
+
+        //50, 600, 1000, 2350, 5600, 6600, 7700
+        
+        //25, 70, 110, 200
+
+        1100,	1085,	954,	700,	450,	350,	200,
+        1077,	925,	830,	675,	415,	320,	0,
+        1000,	835,	780,	650,	400,	288,	0,
+        975,	795,	745,	625,	370,	260,	0,
+    };
 
 };
 
@@ -249,16 +250,12 @@ public:
 
     void update_pressures(GearboxGear current_gear, GearChange change_state);
 
-    uint16_t calc_current_linear_sol(uint16_t p_targ, GearboxGear current_gear, GearChange change_state);
-
     uint16_t inputTorque = 0;
     uint16_t atfTemp = 0;
 
     MechanicalCalibration mechCalib;
     HydraulicCalibration hydrCalib;
 private:
-
-    uint16_t get_tcc_solenoid_pwm_duty(uint16_t request_mbar) const;
 
     bool mpc_flushing = false;
     uint8_t mpc_flush_timer = 0;
@@ -278,6 +275,8 @@ private:
     uint16_t calculated_working_pressure = 0;
     uint16_t calculated_inlet_pressure = 0;
 
+    LookupMap* pcsKF;
+
 };
 
 uint8_t PressureManager::sliding_coefficient() const {
@@ -291,12 +290,14 @@ uint8_t PressureManager::stationary_coefficient() const {
 }
 
 uint16_t PressureManager::getMaxPcsPressure() {
-    return mechCalib.pcsKFx[6];
+    return hydrCalib.pcsKFx[6];
 }
 
 PressureManager::PressureManager(SensorData* sensor_ptr, uint16_t max_torque) {
 
     this->target_modulating_pressure = this->getMaxPcsPressure();
+
+    this->pcsKF = new LookupRefMap((int16_t*)hydrCalib.pcsKFx, 7, (int16_t*)hydrCalib.pcsKFy, 4, (int16_t*)hydrCalib.pcsKFz, 7*4);
 };
 
 uint16_t PressureManager::pClutchFromTorque(GearboxGear gear, Clutch clutch, uint16_t torque, clutchCoefType coefType) {
@@ -387,20 +388,11 @@ uint16_t PressureManager::find_working_mpc_pressure(GearboxGear currentGear, boo
     return output;
 }
 
-uint16_t PressureManager::get_tcc_solenoid_pwm_duty(uint16_t request_mbar) const {
-    if (request_mbar == 0) {
-        return 0; // Shortcut for when off
-    }/*
-        TODO: Return interpolated TCC pwm value from map by requested mbar and atf temp
-    */
-
-    return mechCalib.tccKF[0];
-}
-
 void PressureManager::update_pressures(GearboxGear current_gear, GearChange change_state) {
     // This is my best guess at interpreting the assembly (Decompiler view messes a lot up with this function due to indirections)
 
     // -- Set solenoid currents --
+    /* Uncomment when shifting is relevant
     if (this->shift_sol_en) {
         this->corrected_spc_pressure = this->calc_current_linear_sol(this->target_shift_pressure, current_gear, change_state);
         sol_spc->set_current_target(this->pressure_pwm_map->get_value(this->corrected_spc_pressure, sensor_data->atf_temp+50.0));
@@ -408,9 +400,16 @@ void PressureManager::update_pressures(GearboxGear current_gear, GearChange chan
         this->corrected_spc_pressure = getMaxPcsPressure();
         sol_spc->set_current_target(0);
     }
+    */
+    this->corrected_spc_pressure = getMaxPcsPressure();
+    sol_spc->set_current_target(0);
+
     this->corrected_mpc_pressure = this->calc_current_linear_sol(this->target_modulating_pressure, current_gear, change_state);
-    sol_mpc->set_current_target(this->pressure_pwm_map->get_value(this->corrected_mpc_pressure, sensor_data->atf_temp+50.0));
+    sol_mpc->set_current_target(this->pcsKF->get_value(this->corrected_mpc_pressure, sensor_data->atf_temp+50.0));
+    
+    /* Uncomment when TCC is relevant
     sol_tcc->set_duty(this->get_tcc_solenoid_pwm_duty(this->target_tcc_pressure));
+    */
 }
 
 

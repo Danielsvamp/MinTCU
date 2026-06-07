@@ -68,6 +68,22 @@ class LookupHeader {
 
 };
 
+class LookupRefHeader: public LookupHeader {
+    public:
+        /// @brief manages a table header for a lookup table or lookup map
+        /// @param _header 
+        /// @param _length 
+        LookupRefHeader(int16_t* _header, const uint16_t _size);
+};
+
+// lookupheader.cpp
+LookupRefHeader::LookupRefHeader(int16_t *_header, const uint16_t _size)
+:LookupHeader()
+{
+    size = _size;
+    header = _header;
+}
+
 // lookuptable.h
 class LookupTable {
     public:
@@ -87,6 +103,19 @@ class LookupTable {
         LookupHeader* xHeader;
 };
 
+class LookupRefTable: public LookupTable {
+    public:
+        LookupRefTable(int16_t* _xHeader, uint16_t _xHeaderSize, int16_t* _data, uint16_t _dataSize);
+};
+
+// lookuptable.cpp
+LookupRefTable::LookupRefTable(int16_t* _xHeader, uint16_t _xHeaderSize, int16_t* _data, uint16_t _dataSize)
+:LookupTable() {
+    this->xHeader = new LookupRefHeader(_xHeader, _xHeaderSize);
+    this->data = _data;
+    this->dataSize = _dataSize;
+}
+
 // lookupmap.h
 class LookupMap {
     public:
@@ -100,6 +129,11 @@ class LookupMap {
         LookupTable* table;
         LookupHeader* yHeader;
         uint16_t yHeaderSize;
+};
+
+class LookupRefMap : public LookupMap {
+    public:
+        LookupRefMap(int16_t* _xHeader, const uint16_t _xHeaderSize, int16_t* _yHeader, const uint16_t _yHeaderSize, int16_t* _data, const uint16_t _dataSize);
 };
 
 // lookupmap.cpp
@@ -137,4 +171,10 @@ float LookupMap::get_value(const float xValue, const float yValue)
     // bilinear interpolation, not always efficient, but with more or less constant runtime
     // also see https://en.wikipedia.org/wiki/Bilinear_interpolation, https://helloacm.com/cc-function-to-compute-the-bilinear-interpolation/ for mathematical background
     return interpolate(f_11f_12_interpolated, f_21f_22_interpolated, y1, y2, yValue);
+}
+
+LookupRefMap::LookupRefMap(int16_t* _xHeader, const uint16_t _xHeaderSize, int16_t* _yHeader, const uint16_t _yHeaderSize, int16_t* _data, const uint16_t _dataSize) {
+    this->table = new LookupRefTable(_xHeader, _xHeaderSize, _data, _dataSize);
+    this->yHeader = new LookupRefHeader(_yHeader, _yHeaderSize);
+    this->yHeaderSize = _yHeaderSize;
 }
