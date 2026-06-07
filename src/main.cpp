@@ -277,6 +277,7 @@ private:
 
     uint16_t calculated_working_pressure = 0;
     uint16_t calculated_inlet_pressure = 0;
+
 };
 
 uint8_t PressureManager::sliding_coefficient() const {
@@ -287,6 +288,10 @@ uint8_t PressureManager::release_coefficient() const {
 }
 uint8_t PressureManager::stationary_coefficient() const {
     return 100;
+}
+
+uint16_t PressureManager::getMaxPcsPressure() {
+    return mechCalib.pcsKFx[6];
 }
 
 PressureManager::PressureManager(SensorData* sensor_ptr, uint16_t max_torque) {
@@ -309,18 +314,12 @@ uint32_t PressureManager::pClutchFromTorque(GearboxGear gear, Clutch clutch, uin
             coef = this->release_coefficient();
             break;
         default:
-            coef = 1;
+            coef = 100;
     }
 
     uint16_t friction = mechCalib.clutchFrictionKF[(gearId * 6) + (uint8_t)clutch];
     uint32_t calc = ((uint32_t)torque * (uint32_t)friction) / coef;
     return (uint16_t)calc;
-}
-
-
-
-uint16_t PressureManager::getMaxPcsPressure() {
-    return mechCalib.pcsKFx[6];
 }
 
 uint16_t PressureManager::find_working_mpc_pressure(GearboxGear currentGear, bool flush_logic) {
@@ -334,7 +333,7 @@ uint16_t PressureManager::find_working_mpc_pressure(GearboxGear currentGear, boo
     uint8_t clutchId = mechCalib.strongestClutchKL[gearId];
     if (gearId == 0 || clutchId >= 6) { // N/P
         output = 0;
-    } else {   
+    } else {
         float ret = pClutchFromTorque(currentGear, (Clutch)clutchId, abs(inputTorque), clutchCoefType::Static);
         ret += (mechCalib.releaseSpringPressureKL[clutchId] + hydrCalib.extraPressureNotShifting);
         if (currentGear == GearboxGear::First || currentGear == GearboxGear::ReverseFirst) {
@@ -346,7 +345,7 @@ uint16_t PressureManager::find_working_mpc_pressure(GearboxGear currentGear, boo
         if (ret < hydrCalib.lp_reg_spring_pressure) {
             ret = 0;
         } else {
-            ret -= hydrCalib.lp_reg_spring_pressure;
+            ret -= (hydrCalib.lp_reg_spring_pressure);
         }
         output = ret;
     }
@@ -391,11 +390,11 @@ uint16_t PressureManager::find_working_mpc_pressure(GearboxGear currentGear, boo
 uint16_t PressureManager::get_tcc_solenoid_pwm_duty(uint16_t request_mbar) const {
     if (request_mbar == 0) {
         return 0; // Shortcut for when off
-    }
-    if (this->tcc_pwm_map == nullptr) {
-        return 0; // 0% (Failsafe - TCC off)
-    }
-    return this->tcc_pwm_map->get_value(request_mbar, this->sensor_data->atf_temp);
+    }/*
+        TODO: Return interpolated TCC pwm value from map by requested mbar and atf temp
+    */
+
+    return mechCalib.tccKF[0];
 }
 
 uint16_t PressureManager::calc_current_linear_sol(uint16_t p_targ, GearboxGear current_gear, GearChange change_state) {
