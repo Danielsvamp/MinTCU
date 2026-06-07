@@ -2,14 +2,8 @@
 #include <stdint.h>
 #include <common.h>
 
-// solenoids.h
-
-namespace Solenoids {
-    void init_all_solenoids();
-}
-
 // solenoids.cpp
-void Solenoids::init_all_solenoids(){
+void init_all_solenoids(){
     sol_mpc = new ConstantCurrentSolenoid("MPC", ledc_timer_t::LEDC_TIMER_0, pcb_gpio_matrix->mpc_pwm, ledc_channel_t::LEDC_CHANNEL_3, ADC_CHANNEL_6, 1);
     sol_spc = new ConstantCurrentSolenoid("SPC", ledc_timer_t::LEDC_TIMER_0, pcb_gpio_matrix->spc_pwm, ledc_channel_t::LEDC_CHANNEL_4, ADC_CHANNEL_4, 1);
 }
