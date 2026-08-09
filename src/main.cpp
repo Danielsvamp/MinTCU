@@ -32,7 +32,7 @@ int32_t first_order_filter(uint8_t sample_count, int32_t new_val, int32_t last_v
 }
 
 /*
-    My arduino pinout
+    My arduino pinout saved here so I don't forget what's what
 
 // SHIFT PINS
 const int shift23 = 22;
@@ -100,7 +100,7 @@ struct MechanicalCalibration {
 };
 
 
-// "Hydraulic calibration" from UN52 for A0305452032 (W210 OM612 722.634)
+// "Hydraulic calibration" from UN52 for A0305452032 (210.016 OM612 722.634)
 struct HydraulicCalibration {
     uint16_t p_multi_1 = 431;
     uint16_t p_multi_other = 592;
@@ -154,7 +154,7 @@ struct HydraulicCalibration {
 
 };
 
-
+// Calibration End
 
 
 
@@ -167,7 +167,7 @@ enum class GearboxGear: uint8_t {
     Fifth = 5,
     Park = 8,
     Neutral = 9,
-    ReverseFirst = 10,
+    Reverse_First = 10,
     SignalNotAvailable = 0xFF
 };
 
@@ -189,7 +189,7 @@ uint8_t getGearId(GearboxGear g) {
         case GearboxGear::Fifth:
             gearId = 5;
             break;         
-        case GearboxGear::ReverseFirst:
+        case GearboxGear::Reverse_First:
             gearId = 6;
             break;
         case GearboxGear::Park:
@@ -246,6 +246,8 @@ public:
     
     uint16_t getMaxPcsPressure();
 
+    uint16_t calc_current_linear_sol(uint16_t p_targ, GearboxGear current_gear, GearChange change_state);
+
     void set_target_modulating_pressure(uint16_t targ);
 
     void update_pressures(GearboxGear current_gear, GearChange change_state);
@@ -293,6 +295,58 @@ uint16_t PressureManager::getMaxPcsPressure() {
     return hydrCalib.pcsKFx[6];
 }
 
+uint16_t PressureManager::calc_current_linear_sol(uint16_t p_targ, GearboxGear current_gear, GearChange change_state) {
+    int factor;
+    uint16_t extra_p = 0;
+    if (GearChange::_IDLE == change_state) { // Not shifting
+        // Not shifting
+        if (GearboxGear::First == current_gear || GearboxGear::Reverse_First == current_gear) {
+            factor = hydrCalib.p_multi_1;
+        } else {
+            factor = hydrCalib.p_multi_other;
+        }
+    } else {
+        // Shifting
+        uint16_t extra_p_interp_max;
+        if (GearChange::_1_2 == change_state || GearChange::_2_1 == change_state) {
+            factor = hydrCalib.p_multi_1;
+            extra_p_interp_max = hydrCalib.extra_pressure_adder_r1_1;
+        } else {
+            factor = hydrCalib.p_multi_other;
+            extra_p_interp_max = hydrCalib.extra_pressure_adder_other_gears;
+        }
+        extra_p = interpolate_float(sensor_data->engine_rpm, 0, extra_p_interp_max, hydrCalib.extra_pressure_pump_speed_min, hydrCalib.extra_pressure_pump_speed_max, InterpType::Linear);
+    }
+
+    int line_pressure = ((int)hydrCalib.lp_reg_spring_pressure + (int)this->target_modulating_pressure)*1000;
+    int wp = extra_p + (line_pressure / factor);
+    if (wp <= 0) {
+        wp = 0;
+    }
+    this->calculated_working_pressure = wp;
+
+    int interpolated = interpolate_float(
+        wp,
+        hydrCalib.inlet_pressure_output_min,
+        hydrCalib.inlet_pressure_output_max,
+        hydrCalib.inlet_pressure_input_min,
+        hydrCalib.inlet_pressure_input_max,
+        InterpType::Linear
+    );
+    this->calculated_inlet_pressure = interpolated;
+
+    int inlet_factor = hydrCalib.shift_pressure_addr_percent * (hydrCalib.inlet_pressure_output_max - interpolated);
+    inlet_factor /= 1000;
+    uint16_t output_p = getMaxPcsPressure();
+    if (p_targ < interpolated) {
+        float with_inlet = p_targ + hydrCalib.inlet_pressure_offset;
+        inlet_factor *= with_inlet;
+        inlet_factor /= 1000;
+        output_p = p_targ + inlet_factor;
+    }
+    return output_p;
+}
+
 PressureManager::PressureManager(SensorData* sensor_ptr, uint16_t max_torque) {
 
     this->target_modulating_pressure = this->getMaxPcsPressure();
@@ -337,7 +391,7 @@ uint16_t PressureManager::find_working_mpc_pressure(GearboxGear currentGear, boo
     } else {
         float ret = pClutchFromTorque(currentGear, (Clutch)clutchId, abs(inputTorque), clutchCoefType::Static);
         ret += (mechCalib.releaseSpringPressureKL[clutchId] + hydrCalib.extraPressureNotShifting);
-        if (currentGear == GearboxGear::First || currentGear == GearboxGear::ReverseFirst) {
+        if (currentGear == GearboxGear::First || currentGear == GearboxGear::Reverse_First) {
             ret *= (hydrCalib.p_multi_1 / 1000.0);
         } else {
           ret *= (hydrCalib.p_multi_other / 1000.0);
@@ -400,10 +454,11 @@ void PressureManager::update_pressures(GearboxGear current_gear, GearChange chan
         this->corrected_spc_pressure = getMaxPcsPressure();
         sol_spc->set_current_target(0);
     }
-    */
+    
     this->corrected_spc_pressure = getMaxPcsPressure();
     sol_spc->set_current_target(0);
-
+    */
+   
     this->corrected_mpc_pressure = this->calc_current_linear_sol(this->target_modulating_pressure, current_gear, change_state);
     sol_mpc->set_current_target(this->pcsKF->get_value(this->corrected_mpc_pressure, sensor_data->atf_temp+50.0));
     
