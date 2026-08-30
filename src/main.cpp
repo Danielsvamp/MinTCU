@@ -11,7 +11,10 @@
 #include <Arduino.h>
 #include <stdint.h>
 #include <common.h>
-#include <maplookup.cpp>
+#include <tcu_maths.h>
+#include <lookupmap.h>
+
+#include <AVR_PWM.h>
 #undef B1
 
 
@@ -454,14 +457,15 @@ void PressureManager::update_pressures(GearboxGear current_gear, GearChange chan
         this->corrected_spc_pressure = getMaxPcsPressure();
         sol_spc->set_current_target(0);
     }
-    */
+    
     this->corrected_spc_pressure = getMaxPcsPressure();
     sol_spc->set_current_target(0);
-    */
+    
    
     this->corrected_mpc_pressure = this->calc_current_linear_sol(this->target_modulating_pressure, current_gear, change_state);
     sol_mpc->set_current_target(this->pcsKF->get_value(this->corrected_mpc_pressure, sensor_data->atf_temp+50.0));
-    
+    */
+   
     /* Uncomment when TCC is relevant!
     sol_tcc->set_duty(this->get_tcc_solenoid_pwm_duty(this->target_tcc_pressure));
     */
@@ -473,20 +477,26 @@ void PressureManager::update_pressures(GearboxGear current_gear, GearChange chan
 
 // v Arduino testing v
 
+constexpr uint8_t MPC_PWM_PIN = 11;
+constexpr float   MPC_PWM_FREQ = 1000.0f; // 1 kHz
+constexpr float   TARGET_DUTY  = 50.0f;   // Locked at 50%
+
+AVR_PWM* mpc_pwm = nullptr;
+
 void setup() {
-    Serial.begin(115200);
+    pinMode(MPC_PWM_PIN, OUTPUT);
+    digitalWrite(MPC_PWM_PIN, LOW); // Start OFF
 }
 
-PressureManager pm;
-GearboxGear gear = GearboxGear::Second;
-Clutch clutch = Clutch::K3;
-
-
-
 void loop() {
+    // 1. Turn Gate HIGH (MOSFET ON)
+    digitalWrite(MPC_PWM_PIN, HIGH);
+    delay(500);
 
-};
-
+    // 2. Turn Gate LOW (MOSFET OFF)
+    digitalWrite(MPC_PWM_PIN, LOW);
+    delay(500);
+}
 
 
 

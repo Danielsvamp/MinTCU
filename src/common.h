@@ -1,3 +1,6 @@
+#ifndef COMMON_H
+#define COMMON_H
+
 #include <Arduino.h>
 #include <stdint.h>
 
@@ -34,3 +37,4 @@ struct SensorData{
     bool brake_pressed;
 };
 
+#endif // COMMON_H
