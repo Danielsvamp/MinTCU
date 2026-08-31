@@ -68,32 +68,26 @@ typedef struct {
 } __attribute__ ((packed)) ShiftAlgorithmPack;
 
 typedef struct {
-
     uint16_t p_multi_1 = 431;
     uint16_t p_multi_other = 592;
-
     uint16_t lp_reg_spring_pressure = 1828;
-
     uint16_t min_mpc_pressure = 500;
-
     uint8_t filter_factor = 15;
-
     uint8_t mpc_flush_temp_threshold = 75;
     uint16_t mpc_no_flush_time = 30000;
     uint16_t mpc_flush_time = 50;
-
-    uint16_t extraPressureNotShifting = 0;
-    uint16_t extra_pressure_pump_speed_min = 0;
-    uint16_t extra_pressure_pump_speed_max = 0;
-    uint16_t extra_pressure_adder_r1_1 = 0;
-    uint16_t extra_pressure_adder_other_gears = 0;
-    uint16_t shift_pressure_addr_percent = 0;
-
-    uint16_t inlet_pressure_offset = 0;
-    uint16_t inlet_pressure_input_min = 0;
-    uint16_t inlet_pressure_input_max = 0;
-    uint16_t inlet_pressure_output_min = 0;
-    uint16_t inlet_pressure_output_max = 0;
+    uint16_t extra_p_not_shifting = 0;
+    uint16_t shift_pressure_addr_percent = 30;
+    uint16_t inlet_pressure_offset = 1000;
+    uint16_t inlet_pressure_input_min = 3180;
+    uint16_t inlet_pressure_input_max = 8820;
+    uint16_t inlet_pressure_output_min = 2690;
+    uint16_t inlet_pressure_output_max = 8820;
+    uint16_t extra_pressure_pump_speed_min = 1000;
+    uint16_t extra_pressure_pump_speed_max = 4000;
+    uint16_t extra_pressure_adder_r1_1 = 1500;
+    uint16_t extra_pressure_adder_other_gears = 1000;
+    uint16_t shift_pressure_addr_percent = 37;
 
     // Pressure solenoid current map
     uint16_t pcs_map_x[7] = { // X axis of pcsKF. Pressure in mbar
@@ -123,14 +117,15 @@ typedef struct {
 } __attribute__ ((packed)) HydraulicCalibration;
 
 typedef struct {
-    //Per clutch friction map
-    uint16_t clutchFrictionKF[48] = {
-        //6, 8,
+    uint16_t ratio_table[8] = {0, 3595, 2186, 1405, 1000, 831, 3167, 1926};
 
-        //K1, K2, K3, B1, B2, B3,
-        
-        //0, 1, 2, 3, 4, 5, -1, -2
+    uint8_t gb_ty = 0;
+    uint16_t intertia_factor[8] = {1645, 1556, 1405, 1203, 1644, 1556, 1405, 1203};
 
+    //Per clutch/gear friction map
+    uint16_t friction_map[48] = {/*
+        X-Axis 
+        K1      K2       K3      B1     B2      B3    | Y-Axis      */
         4709,	0,	    0,	    3574,	0,  	0,      // 0
         0,	    0,	    3076,	2303,	2685,	0,      // 1
         1845,	0,	    1871,	0,	    1633,	0,      // 2
@@ -140,6 +135,16 @@ typedef struct {
         0,	    0,	    3076,	2303,	0,	    3387,   // -1
         1845,	0,	    1871,	0,	    0,	    2060,   // -2
     };
+
+    uint16_t max_torque_on_clutch[4] = {1000, 896, 564, 1000};
+    uint16_t max_torque_off_clutch[4] = {1000, 928, 1518, 758};
+    uint16_t release_spring_pressure[6] = {1102, 949, 1139, 1033, 1512, 274};
+    uint16_t intertia_torque[8] = {18, 26, 126, 18, 18, 26, 126, 255};
+    uint8_t strongest_loaded_clutch_idx[8] = {2, 2, 1, 1, 1, 2, 2, 16};
+    uint16_t turbine_drag[8] = {10, 35, 59, 16, 18, 25, 30, 121};
+    uint16_t atf_density_minus_50c = 828;
+    uint16_t atf_density_drop_per_c = 0;
+    uint16_t atf_density_centrifugal_force_factor[3] = {64, 40120, 2847};
 
     //fix this
     uint16_t tccKF[35] = { // Z of pcsKF. Current in mA(?)

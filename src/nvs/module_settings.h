@@ -1,0 +1,674 @@
+#ifndef __MODULE_SETTINGS_H
+#define __MODULE_SETTINGS_H
+
+#include <stdint.h>
+#include <tcu_maths.h>
+//#include <esp_err.h>
+
+// Torque converter setting
+typedef struct {
+    // Enable adaptation for all gears
+    bool adapt_enable;
+    // Enable torque converter in D1
+    bool enable_d1;
+    // Enable torque converter in D2
+    bool enable_d2;
+    // Enable torque converter in D3
+    bool enable_d3;
+    // Enable torque converter in D4
+    bool enable_d4;
+    // Enable torque converter in D5
+    bool enable_d5;
+    // Open the converter to slipping (If locked) if the engine requests it
+    // This is used on the M113K platform when the supercharger clutch
+    // is about to engage, so that the shock of the supercharger coming on does
+    // not cause too much discomfort
+    bool react_on_engine_slip_request;
+    // Open the converter fully, if the engine requests it.
+    // This is usually used under very heavy load under low RPM
+    bool react_on_engine_open_request;
+    // Scaling for TCC output pressure based on temperature. 
+    //
+    // When cold, the ATF is thicker, thus a higher pressure can be commanded
+    // with the same TCC solenoid PWM. This scaling is meant to mitigate this
+    // effect.
+    //
+    // Adaptation can only work when ATF is hotter than the `raw_max` value
+    //
+    // To disable this scaling, set output_min and output_max to 1.0
+    LinearInterpSetting tcc_temp_multiplier;
+    // Prefill pressure for the torque converter. When going from Open->Slipping, 
+    // a burst of pressure is first sent in order to fill the converter faster
+    // UNIT: mBar
+    uint16_t prefill_pressure;
+    // Number of 20ms cycles to hold the converter at prefill_pressure for when
+    // prefilling
+    uint8_t prefill_cycles;
+    // DEBUG: Override the automatic calculation of max torque used for TCC adaptations.
+    //        Set to 0 to disable the override (Use automatic calculation), Set to any
+    //        other number to override max rated torque of the converter. IMPORTANT: If
+    //        modified, it is recommended to reset the TCC adaptation maps.
+    //
+    // UNIT: Nm
+    uint16_t tcc_max_trq_override;
+    // Forces the TCC to unlock on upshifts under load
+    bool unlock_load_upshifts;
+    // Forces the TCC to unlock on downshifts under load
+    bool unlock_load_downshifts;
+    // Forces the TCC to unlock on upshifts when coasting
+    bool unlock_coasting_upshifts;
+    // Forces the TCC to unlock on downshifts when coasting
+    bool unlock_coasting_downshifts;
+} __attribute__ ((packed)) TCC_MODULE_SETTINGS;
+
+const TCC_MODULE_SETTINGS TCC_DEFAULT_SETTINGS = {
+    .adapt_enable = true,
+    .enable_d1 = true,
+    .enable_d2 = true,
+    .enable_d3 = true,
+    .enable_d4 = true,
+    .enable_d5 = true,
+    .react_on_engine_slip_request = true,
+    .react_on_engine_open_request = true,
+    .tcc_temp_multiplier = LinearInterpSetting {
+        .new_min = 0.5,
+        .new_max = 1.0,
+        .raw_min = -10,
+        .raw_max = 60
+    },
+    .prefill_pressure = 10000,
+    .prefill_cycles = 10,
+    .tcc_max_trq_override = 0,
+    .unlock_load_upshifts = true,
+    .unlock_load_downshifts = true,
+    .unlock_coasting_upshifts = false,
+    .unlock_coasting_downshifts = false
+};
+
+// Solenoid subsystem settings
+typedef struct {
+    // Minimum battery voltage before performing 
+    // the solenoid boot up test on TCU start
+    //
+    // UNIT: mV
+    uint16_t min_batt_power_on_test;
+    // If a solenoid is reading more than this current during the
+    // boot test, then it is assumed faulty
+    //
+    // UNIT: mA
+    uint16_t current_threshold_error;
+    // Solenoid reference voltage. DO NOT TOUCH THIS. It is intended 
+    // for debugging ONLY!
+    //
+    // UNIT: mV
+    uint16_t cc_vref_solenoid;
+    // The temperature coefficient of the solenoid wiring and coils.
+    // DO NOT TOUCH THIS. It is intended for debugging ONLY!
+    // UNIT: Ohm/deg C
+    float cc_temp_coefficient_wires;
+    // MPC and SPC solenoids reference resistance at cc_reference_temp
+    // UNIT: Ohm
+    float cc_reference_resistance;
+    // MPC and SPC solenoids resistance reference temperature
+    // UNIT: C
+    float cc_reference_temp;
+    // MPC and SPC current control PID settings - P component
+    int16_t cc_pid_p;
+    // MPC and SPC current control PID settings - I component
+    int16_t cc_pid_i;
+    // MPC and SPC current control PID settings - D component
+    int16_t cc_pid_d;
+    // MPC and SPC solenoid current offset to correct for ADC/Board characteristics
+    //
+    // 1.3 boards - (Up to -100mA is recommended)
+    // UNIT: mA
+    int16_t cc_offset_ma;
+    
+} __attribute__ ((packed)) SOL_MODULE_SETTINGS;
+
+const SOL_MODULE_SETTINGS SOL_DEFAULT_SETTINGS = {
+    .min_batt_power_on_test = 11000,
+    .current_threshold_error = 500,
+    .cc_vref_solenoid = 12000,
+    .cc_temp_coefficient_wires = 0.393,
+    .cc_reference_resistance = 5.3,
+    .cc_reference_temp = 25,
+    .cc_pid_p = 800,
+    .cc_pid_i = 500,
+    .cc_pid_d = 0,
+    .cc_offset_ma = 0,
+};
+
+// Shift program basic settings
+typedef struct {
+    // DEBUG - Show an 'F' marker in the gear display when the TCU
+    // detects a flare condition
+    bool f_shown_if_flare;
+    // DEBUG - Show '^' or 'v' in the gear display when the shift
+    // thread is active
+    bool debug_show_up_down_arrows_in_r;
+    // Enable torque requests for 1-2
+    bool en_trq_req_1_2;
+    // Enable torque requests for 2-3
+    bool en_trq_req_2_3;
+    // Enable torque requests for 3-4
+    bool en_trq_req_3_4;
+    // Enable torque requests for 4-5
+    bool en_trq_req_4_5;
+    // Enable torque requests for 2-1
+    bool en_trq_req_2_1;
+    // Enable torque requests for 3-2
+    bool en_trq_req_3_2;
+    // Enable torque requests for 4-3
+    bool en_trq_req_4_3;
+    // Enable torque requests for 5-4
+    bool en_trq_req_5_4;
+} __attribute__ ((packed)) SBS_MODULE_SETTINGS;
+
+const SBS_MODULE_SETTINGS SBS_DEFAULT_SETTINGS = {
+    .f_shown_if_flare = false,
+    .debug_show_up_down_arrows_in_r = false,
+    .en_trq_req_1_2 = true,
+    .en_trq_req_2_3 = true,
+    .en_trq_req_3_4 = true,
+    .en_trq_req_4_5 = true,
+
+    .en_trq_req_2_1 = true,
+    .en_trq_req_3_2 = true,
+    .en_trq_req_4_3 = true,
+    .en_trq_req_5_4 = true,
+};
+
+// Pressure manager settings
+typedef struct {
+    // DEBUG: Friction coefficient when stationary (In gear)
+    uint8_t stationary_coefficient;
+    // DEBUG: Friction coefficient when releasing a clutch
+    uint8_t releasing_coefficient;
+    // DEBUG: Friction coefficient when applying a clutch (Cold)
+    uint8_t applying_coefficient_cold;
+    // DEBUG: Friction coefficient when applying a clutch (Hot)
+    uint8_t applying_coefficient_hot;
+} __attribute__ ((packed)) PRM_MODULE_SETTINGS;
+
+
+
+const PRM_MODULE_SETTINGS PRM_DEFAULT_SETTINGS = {
+    .stationary_coefficient = 100,
+    .releasing_coefficient = 120,
+    .applying_coefficient_cold = 185,
+    .applying_coefficient_hot = 140
+};
+
+// Adaptation settings
+typedef struct {
+    // Minimum transmission oil temperature for adaptation
+    //
+    // UNIT: degrees C
+    int16_t min_atf_temp;
+    // Maximum transmission oil temperature for adaptation
+    //
+    // UNIT: degrees C
+    int16_t max_atf_temp;
+    // Minimum input speed for adaptation
+    //
+    // UNIT: RPM
+    uint16_t min_input_rpm;
+    // Maximum input speed for adaptation
+    //
+    // UNIT: RPM
+    uint16_t max_input_rpm;
+    // Prefill time/pressure adapt allowed for the K1 clutch
+    bool prefill_adapt_k1;
+    // Prefill time/pressure adapt allowed for the K2 clutch
+    bool prefill_adapt_k2;
+    // Prefill time/pressure adapt allowed for the K3 clutch
+    bool prefill_adapt_k3;
+    // Prefill time/pressure adapt allowed for the B1 brake
+    bool prefill_adapt_b1;
+    // Prefill time/pressure adapt allowed for the B2 brake
+    bool prefill_adapt_b2;
+    // The max pressure delta (+/-) allowed for prefill adaptation
+    //
+    // UNIT: mBar
+    uint16_t prefill_max_pressure_delta;
+    // The max time delta (+/-) allowed for prefill adaptation
+    //
+    // UNIT: milliseconds
+    uint16_t prefill_max_time_delta;
+    // Torque adaptation allowed for 1-2
+    bool adapt_trq_1_2;
+    // Torque adaptation allowed for 2-3
+    bool adapt_trq_2_3;
+    // Torque adaptation allowed for 3-4
+    bool adapt_trq_3_4;
+    // Torque adaptation allowed for 4-5
+    bool adapt_trq_4_5;
+    // Torque adaptation allowed for 2-1
+    bool adapt_trq_2_1;
+    // Torque adaptation allowed for 3-2
+    bool adapt_trq_3_2;
+    // Torque adaptation allowed for 4-3
+    bool adapt_trq_4_3;
+    // Torque adaptation allowed for 5-4
+    bool adapt_trq_5_4;
+    // Enable adaptation when manual shifting.
+    // It is disabled by default as this can
+    // cause shift latency
+    bool adaptation_when_manual_shifting;
+    
+} __attribute__ ((packed)) ADP_MODULE_SETTINGS;
+
+const ADP_MODULE_SETTINGS ADP_DEFAULT_SETTINGS = {
+    .min_atf_temp = 60,
+    .max_atf_temp = 110,
+    .min_input_rpm = 1000,
+    .max_input_rpm = 3000,
+    .prefill_adapt_k1 = true,
+    .prefill_adapt_k2 = true,
+    .prefill_adapt_k3 = true,
+    .prefill_adapt_b1 = true,
+    .prefill_adapt_b2 = true,
+    .prefill_max_pressure_delta = 200,
+    .prefill_max_time_delta = 200,
+    .adapt_trq_1_2 = false,
+    .adapt_trq_2_3 = false,
+    .adapt_trq_3_4 = false,
+    .adapt_trq_4_5 = false,
+    .adapt_trq_2_1 = false,
+    .adapt_trq_3_2 = false,
+    .adapt_trq_4_3 = false,
+    .adapt_trq_5_4 = false,
+    .adaptation_when_manual_shifting = false,
+};
+
+enum EwmSelectorType: uint8_t {
+    None = 0,
+    Button = 1,
+    Switch = 2
+};
+
+enum SelectableGearboxProfile : uint8_t {
+    // Standard mode
+    Standard = 0,
+    // Comfort mode
+    Comfort = 1,
+    // Agility mode
+    Agility = 2,
+    /// Manual mode - REQUIRES TIPTRONIC OR PADDLES TO FUNCTION
+    Manual = 3,
+    /// Manual mode - REQUIRES TIPTRONIC OR PADDLES TO FUNCTION
+    Race = 4
+};
+
+// Shifter settings
+typedef struct {
+    // TRRS shifter (Wired to the TCU) has a profile selector?
+    bool trrs_has_profile_selector;
+    // The type of profile selection available on the CAN EWM
+    // shifter
+    EwmSelectorType ewm_selector_type;
+    // When using a switch profile selector. This is the profile
+    // to use when in the top position
+    SelectableGearboxProfile switch_profile_idx_top;
+    // When using a switch profile selector. This is the profile
+    // to use when in the bottom position
+    SelectableGearboxProfile switch_profile_idx_bottom;
+    // When using the SLR profile selector, this is the profile
+    // when the profile selector is in the left position
+    SelectableGearboxProfile slr_profile_idx_left;
+    // When using the SLR profile selector, this is the profile
+    // when the profile selector is in the center position
+    SelectableGearboxProfile slr_profile_idx_center;
+    // When using the SLR profile selector, this is the profile
+    // when the profile selector is in the right position
+    SelectableGearboxProfile slr_profile_idx_right;
+    // CAN Shifter button profile selector - Enable Comfort mode
+    bool ewm_enable_c;
+    // CAN Shifter button profile selector - Enable Winter (Manual 2nd gear start) mode
+    bool ewm_enable_w;
+    // CAN Shifter button profile selector - Enable Agility mode
+    bool ewm_enable_a;
+    // CAN Shifter button profile selector - Enable Manual mode
+    bool ewm_enable_m;
+    // CAN Shifter button profile selector - Enable Race (Super fast manual) mode
+    bool ewm_enable_r;
+    // CAN Shifter button profile selector - Save profile for 
+    // next start - Only applys for auto profiles (This overrides startup profile in basic options)
+    bool ewm_save_profile;
+    // CAN Shifter button profile selector - Save profile for 
+    // next start (Including manual profile options)
+    bool ewm_save_profile_manual;
+    // Check the WIKI. This option allows you to wire up a push button to the TCU Pin 3 (PRG) if you
+    // are running the EWM shifter without a profile button (W163/Sprinter vehicles). The button
+    // should be wired between VBatt and Pin 3 of the TCU, and should conduct when pressed.
+    bool ewm_custom_profile_btn;
+} __attribute__ ((packed)) ETS_MODULE_SETTINGS;
+
+const ETS_MODULE_SETTINGS ETS_DEFAULT_SETTINGS = {
+    .trrs_has_profile_selector = true,
+    .ewm_selector_type = EwmSelectorType::Button,
+    .switch_profile_idx_top = SelectableGearboxProfile::Comfort,
+    .switch_profile_idx_bottom = SelectableGearboxProfile::Standard,
+    .slr_profile_idx_left = SelectableGearboxProfile::Comfort,
+    .slr_profile_idx_center = SelectableGearboxProfile::Standard,
+    .slr_profile_idx_right = SelectableGearboxProfile::Manual,
+    .ewm_enable_c = false,
+    .ewm_enable_w = false,
+    .ewm_enable_a = false,
+    .ewm_enable_m = true,
+    .ewm_enable_r = false,
+    .ewm_save_profile = true,
+    .ewm_save_profile_manual = false,
+    .ewm_custom_profile_btn = false,
+};
+
+// Release shift settings
+typedef struct {
+    // Past this output shaft RPM, torque requests
+    // will not be activated when upshifting
+    uint16_t output_rpm_disable_trq_req;
+    // Below this RPM, a clutch will be considered 'stationary'
+    // which triggers the clutch syncronization phases
+    // UNIT: RPM
+    uint16_t clutch_stationary_rpm;
+    // Clutch inertia control PID algorithm 'P' value (upshifts)
+    int16_t pid_p_val_upshift;
+    // Clutch inertia control PID algorithm 'I' value (downshifts)
+    int16_t pid_i_val_upshift;
+    // Clutch inertia control PID algorithm 'P' value (upshifts)
+    int16_t pid_p_val_downshift;
+    // Clutch inertia control PID algorithm 'I' value (downshifts)
+    int16_t pid_i_val_downshift;
+    // Mapping of pedal position to off clutch torque ramp release speed
+    //
+    // 'raw' values are pedal position (0-250 = 0-100%), 'new' values
+    // are the output, in Nm/20ms reduction
+    LinearInterpSetting torque_loss_speed_pedal_pos;
+    // SPC ramp speed
+    // UNIT: mBar/20ms
+    uint8_t spc_ramp_speed;
+    // SPC ramp multiplier in 'Manual' mode
+    float spc_ramp_multi_m;
+    // SPC ramp multiplier in 'Race' mode
+    float spc_ramp_multi_r;
+    // SPC offset based on input RPM. If your shifts are sliggish at higher
+    // RPMs, then you can increase the output pressure here
+    LinearInterpSetting adder_spc_rpm;
+    // SPC offset based on pedal position for Race mode. Pedal is from 0-250
+    LinearInterpSetting adder_spc_pedal_r;
+    // SPC offset based on pedal position for Manual mode. Pedal is from 0-250
+    LinearInterpSetting adder_spc_pedal_m;
+    // SPC offset based on pedal position for all other modes. Pedal is from 0-250
+    LinearInterpSetting adder_spc_pedal;
+} __attribute__ ((packed)) REL_MODULE_SETTINGS;
+
+const REL_MODULE_SETTINGS REL_DEFAULT_SETTINGS = {
+    .output_rpm_disable_trq_req = 1500,
+    .clutch_stationary_rpm = 130,
+    .pid_p_val_upshift = -150,
+    .pid_i_val_upshift = -5,
+    .pid_p_val_downshift = 200,
+    .pid_i_val_downshift = 5,
+    .torque_loss_speed_pedal_pos = {
+        .new_min = 0.1,
+        .new_max = 0.5,
+        .raw_min = 10,
+        .raw_max = 250,
+    },
+    .spc_ramp_speed = 8,
+    .spc_ramp_multi_m = 1.5,
+    .spc_ramp_multi_r = 2.0,
+    .adder_spc_rpm = {
+        .new_min = 0,
+        .new_max = 100,
+        .raw_min = 2500,
+        .raw_max = 5000,
+    },
+    .adder_spc_pedal_r = {
+        .new_min = 0,
+        .new_max = 500,
+        .raw_min = 10,
+        .raw_max = 250,
+    },
+    .adder_spc_pedal_m = {
+        .new_min = 0,
+        .new_max = 250,
+        .raw_min = 10,
+        .raw_max = 250,
+    },
+    .adder_spc_pedal = {
+        .new_min = 0,
+        .new_max = 100,
+        .raw_min = 10,
+        .raw_max = 250,
+    }
+};
+
+// Garage shift settings
+typedef struct {
+    // Number of 20ms cycles before garage shift times out
+    // and the TCU tries again
+    // UNIT: cycles
+    uint16_t timeout_cycles;
+    // Prefilling time for B2 clutch (For N to D shift)
+    // 'raw' values are the ATF Temperature (In Celcius), 'new' values
+    // are the number of 20ms cycles for prefilling (so 20 would be 400ms)
+    LinearInterpSetting prefill_time_b2;
+    // Prefilling time for B3 clutch (For N to R shift)
+    // 'raw' values are the ATF Temperature (In Celcius), 'new' values
+    // are the number of 20ms cycles for prefilling (so 20 would be 400ms)
+    LinearInterpSetting prefill_time_b3;
+
+    // Apply ramp for B2 clutch
+    // 'raw' values are the ATF Temperature (In Celcius), 'new' values
+    // are the pressure added to B2 every 20ms until it engages
+    LinearInterpSetting p_ramp_b2;
+    // Apply ramp for B3 clutch
+    // 'raw' values are the ATF Temperature (In Celcius), 'new' values
+    // are the pressure added to B2 every 20ms until it engages
+    LinearInterpSetting p_ramp_b3;
+} __attribute__ ((packed)) GAR_MODULE_SETTINGS;
+
+const GAR_MODULE_SETTINGS GAR_DEFAULT_SETTINGS = {
+    .timeout_cycles = 250,
+    .prefill_time_b2 = {
+        .new_min = 15,
+        .new_max = 4,
+        .raw_min = -10,
+        .raw_max = 80,
+    },
+    .prefill_time_b3 = {
+        .new_min = 15,
+        .new_max = 4,
+        .raw_min = -10,
+        .raw_max = 80,
+    },
+    .p_ramp_b2 = {
+        .new_min = 20,
+        .new_max = 7,
+        .raw_min = -10,
+        .raw_max = 80,
+    },
+    .p_ramp_b3 = {
+        .new_min = 20,
+        .new_max = 7,
+        .raw_min = -10,
+        .raw_max = 80,
+    },
+};
+
+// Crossover shift settings
+typedef struct {
+    // Below this RPM, a clutch will be considered 'stationary'
+    // which triggers the clutch syncronization phases
+    // UNIT: RPM
+    uint16_t clutch_stationary_rpm;
+    // Number of 20ms cycles for the overlap phase when at low torque (<= 2x Drag torque)
+    // UNIT: cycles
+    uint8_t overlap_cycles_low_trq;
+    // Number of 20ms cycles for the overlap phase when at high torque (>= 10x Drag torque)
+    // UNIT: cycles
+    uint8_t overlap_cycles_high_trq;
+    // Adder to overlap_cycles_low_trq for 1-2 at low torque
+    // UNIT: cycles
+    uint8_t overlap_cycles_low_trq_adder_1_2;
+    // Adder to overlap_cycles_high_trq for 1-2 at low torque
+    // UNIT: cycles
+    uint8_t overlap_cycles_high_trq_adder_1_2;
+    // Adder to overlap_cycles based on RPM. Increasing the output minimum can help
+    // with harsh shifting at lower RPMs
+    LinearInterpSetting overlap_cycles_adder_rpm;
+    // Multiplier for the overlap cycles based on target shift speed
+    LinearInterpSetting overlap_multi_shift_speed;
+    // Torque adder factor for upshifting in normal profiles
+    float adder_trq_multi_normal_up;
+    // Torque adder factor for upshifting in manual profile
+    float adder_trq_multi_manual_up;
+    // Torque adder factor for upshifting in race profile
+    float adder_trq_multi_race_up;
+    // Torque adder factor for downshifting in normal profiles
+    float adder_trq_multi_normal_dn;
+    // Torque adder factor for downshifting in manual profile
+    float adder_trq_multi_manual_dn;
+    // Torque adder factor for downshifting in race profile
+    float adder_trq_multi_race_dn;
+    // Number of 20ms cycles for the torque sync phase when at low torque (<= 2x Drag torque)
+    // UNIT: cycles
+    uint8_t sync_cycles_low_trq;
+    // Number of 20ms cycles for the torque sync phase when at high torque (>= 10x Drag torque)
+    // UNIT: cycles
+    uint8_t sync_cycles_high_trq;
+    // Adder to sync_cycles_low_trq for 1-2 at low torque
+    // UNIT: cycles
+    uint8_t sync_cycles_low_trq_adder_1_2;
+    // Adder to sync_cycles_high_trq for 1-2 at low torque
+    // UNIT: cycles
+    uint8_t sync_cycles_high_trq_adder_1_2;
+    // Adder to sync_cycles based on RPM. Increasing the output minimum can help
+    // with harsh shifting at lower RPMs
+    LinearInterpSetting sync_cycles_adder_rpm;
+    // Multiplier for the output sync cycles based on target shift speed
+    LinearInterpSetting sync_multi_shift_speed;
+    // Torque sync torque adder ramp value based on shift speed (Output is in Nm/20ms)
+    LinearInterpSetting sync_trq_adder_speed;
+
+    // Torque request multiplier based on pedal position (100% = 250)
+    LinearInterpSetting trq_req_multi_pedal_pos;
+    // Torque request multiplier based on input RPM
+    LinearInterpSetting trq_req_multi_input_rpm;
+    // Clutch inertia control PID algorithm 'P' value (upshifts)
+    int16_t pid_p_val_upshift;
+    // Clutch inertia control PID algorithm 'I' value (downshifts)
+    int16_t pid_i_val_upshift;
+    // Clutch inertia control PID algorithm 'D' value (downshifts)
+    int16_t pid_d_val_upshift;
+    // Clutch inertia control PID algorithm 'P' value (upshifts)
+    int16_t pid_p_val_downshift;
+    // Clutch inertia control PID algorithm 'I' value (downshifts)
+    int16_t pid_i_val_downshift;
+    // Clutch inertia control PID algorithm 'D' value (downshifts)
+    int16_t pid_d_val_downshift;
+} __attribute__ ((packed)) CRS_MODULE_SETTINGS;
+
+const CRS_MODULE_SETTINGS CRS_DEFAULT_SETTINGS = {
+    .clutch_stationary_rpm = 130,
+    .overlap_cycles_low_trq = 10,
+    .overlap_cycles_high_trq = 6,
+    .overlap_cycles_low_trq_adder_1_2 = 3,
+    .overlap_cycles_high_trq_adder_1_2 = 2,
+    .overlap_cycles_adder_rpm = LinearInterpSetting {
+        .new_min = 3,
+        .new_max = 1,
+        .raw_min = 1000,
+        .raw_max = 4000
+    },
+    .overlap_multi_shift_speed = LinearInterpSetting {
+        .new_min = 0.5,
+        .new_max = 1.0,
+        .raw_min = 100,
+        .raw_max = 750
+    },
+
+    .adder_trq_multi_normal_up = 1.0,
+    .adder_trq_multi_manual_up = 1.5,
+    .adder_trq_multi_race_up = 2.0,
+    .adder_trq_multi_normal_dn = 1.0,
+    .adder_trq_multi_manual_dn = 1.5,
+    .adder_trq_multi_race_dn = 2.0,
+
+    .sync_cycles_low_trq = 10,
+    .sync_cycles_high_trq = 7,
+    .sync_cycles_low_trq_adder_1_2 = 2,
+    .sync_cycles_high_trq_adder_1_2 = 1,
+    .sync_cycles_adder_rpm = LinearInterpSetting {
+        .new_min = 0,
+        .new_max = 2,
+        .raw_min = 1000,
+        .raw_max = 4000
+    },
+    .sync_multi_shift_speed = LinearInterpSetting {
+        .new_min = 0.5,
+        .new_max = 1.0,
+        .raw_min = 100,
+        .raw_max = 750
+    },
+    .sync_trq_adder_speed = LinearInterpSetting {
+        .new_min = 0.25,
+        .new_max = 1.0,
+        .raw_min = 1000,
+        .raw_max = 100
+    },
+
+    .trq_req_multi_pedal_pos = LinearInterpSetting {
+        .new_min = 0,
+        .new_max = 0.5,
+        .raw_min = 25,
+        .raw_max = 250
+    },
+    .trq_req_multi_input_rpm = LinearInterpSetting {
+        .new_min = 1.0,
+        .new_max = 1.5,
+        .raw_min = 1500,
+        .raw_max = 6000
+    },
+    .pid_p_val_upshift = 150,
+    .pid_i_val_upshift = 15,
+    .pid_d_val_upshift = 30,
+    .pid_p_val_downshift = -150,
+    .pid_i_val_downshift = -5,
+    .pid_d_val_downshift = -15
+};
+
+// module settings
+extern TCC_MODULE_SETTINGS TCC_CURRENT_SETTINGS;
+extern SOL_MODULE_SETTINGS SOL_CURRENT_SETTINGS;
+extern SBS_MODULE_SETTINGS SBS_CURRENT_SETTINGS;
+extern PRM_MODULE_SETTINGS PRM_CURRENT_SETTINGS;
+extern ADP_MODULE_SETTINGS ADP_CURRENT_SETTINGS;
+extern ETS_MODULE_SETTINGS ETS_CURRENT_SETTINGS;
+extern REL_MODULE_SETTINGS REL_CURRENT_SETTINGS;
+extern GAR_MODULE_SETTINGS GAR_CURRENT_SETTINGS;
+extern CRS_MODULE_SETTINGS CRS_CURRENT_SETTINGS;
+
+// Setting IDx
+#define TCC_MODULE_SETTINGS_SCN_ID 0x01
+#define SOL_MODULE_SETTINGS_SCN_ID 0x02
+#define SBS_MODULE_SETTINGS_SCN_ID 0x03
+#define PRM_MODULE_SETTINGS_SCN_ID 0x05
+#define ADP_MODULE_SETTINGS_SCN_ID 0x06
+#define ETS_MODULE_SETTINGS_SCN_ID 0x07
+#define REL_MODULE_SETTINGS_SCN_ID 0x08
+#define GAR_MODULE_SETTINGS_SCN_ID 0x09
+#define CRS_MODULE_SETTINGS_SCN_ID 0x0A
+
+namespace ModuleConfiguration {
+    /*
+    esp_err_t load_all_settings();
+    esp_err_t reset_settings(uint8_t idx);
+    esp_err_t write_settings(uint8_t module_id, uint16_t buffer_len, uint8_t* buffer);
+    esp_err_t read_settings(uint8_t module_id, uint16_t* buffer_len, uint8_t** buffer);
+    */
+}
+
+#endif
