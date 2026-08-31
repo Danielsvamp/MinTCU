@@ -1,7 +1,7 @@
 #ifndef LOOKUPTABLE_H
 #define LOOKUPTABLE_H
 
-#include "lookupheader.h"
+#include <lookupheader.h>
 
 using namespace std;
 

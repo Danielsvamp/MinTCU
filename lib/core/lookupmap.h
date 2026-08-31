@@ -1,7 +1,7 @@
 #ifndef LOOKUPMAP_H
 #define LOOKUPMAP_H
 
-#include "lookuptable.h"
+#include <lookuptable.h>
 
 
 struct LookupCache {

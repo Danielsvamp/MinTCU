@@ -1,4 +1,4 @@
-#include "lookupheader.h"
+#include <lookupheader.h>
 #include <string.h>
 
 int16_t LookupHeader::get_value(const uint16_t index) const

@@ -1,4 +1,4 @@
-#include "lookuptable.h"
+#include <lookuptable.h>
 #include <string.h>
 #include "tcu_maths_impl.h"
 

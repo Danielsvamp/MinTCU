@@ -1,6 +1,6 @@
-#include "lookupmap.h"
-#include "tcu_maths_impl.h"
-#include "clock.h"
+#include <lookupmap.h>
+#include <tcu_maths_impl.h>
+#include <clock.h>
 #include <string.h>
 
 float LookupMap::get_value(const float xValue, const float yValue) {

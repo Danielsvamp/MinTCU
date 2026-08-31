@@ -1,4 +1,4 @@
-#include "tcu_maths.h"
+#include <tcu_maths.h>
 
 float interpolate_float(float raw, float new_min, float new_max, float raw_min, float raw_max, InterpType interp_type) {
     // Short cuts for cases where we are > or < than bounds
