@@ -185,11 +185,10 @@ void PressureManager::update_pressures(GearboxGear current_gear, GearChange chan
     
     this->corrected_spc_pressure = getMaxPcsPressure();
     sol_spc->set_current_target(0);
-    
+    */
    
     this->corrected_mpc_pressure = this->calc_current_linear_sol(this->target_modulating_pressure, current_gear, change_state);
     sol_mpc->set_current_target(this->pressure_pwm_map->get_value(this->corrected_mpc_pressure, sensor_data->atf_temp+50.0));
-    */
    
     /* Uncomment when TCC is relevant!
     sol_tcc->set_duty(this->get_tcc_solenoid_pwm_duty(this->target_tcc_pressure));

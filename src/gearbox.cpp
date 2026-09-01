@@ -817,173 +817,16 @@ cleanup:
 void Gearbox::controller_loop()
 {
     ShifterPosition last_position = ShifterPosition::SignalNotAvailable;
-    //ESP_LOG_LEVEL(ESP_LOG_INFO, "GEARBOX", "GEARBOX START!");
     uint32_t expire_check = GET_CLOCK_TIME() + 100; // 100ms
-    egs_can_hal->set_safe_start(true);
-    while (GET_CLOCK_TIME() < expire_check)
-    {
-        // Step 1. Aquire ALL Sensors
-        TCUIO::update_io_layer();
 
-        this->shifter_pos = egs_can_hal->get_shifter_position(250);
-        last_position = this->shifter_pos;
-        if (this->shifter_pos == ShifterPosition::P || this->shifter_pos == ShifterPosition::N)
-        {
-            egs_can_hal->set_safe_start(true);
-            break; // Default startup, OK
-        }
-        else if (this->shifter_pos == ShifterPosition::D)
-        { // Car is in motion forwards!
-            this->actual_gear = GearboxGear::Fifth;
-            this->target_gear = GearboxGear::Fifth;
-            this->gear_disagree_count = 20; // Set disagree counter to non 0. This way gearbox must calculate ratio
-            egs_can_hal->set_safe_start(false);
-            break;
-        }
-        else if (this->shifter_pos == ShifterPosition::R)
-        { // Car is in motion backwards!
-            this->actual_gear = GearboxGear::Reverse_Second;
-            this->target_gear = GearboxGear::Reverse_Second;
-            egs_can_hal->set_safe_start(false);
-            break;
-        }
-        else {
-            egs_can_hal->set_safe_start(true); // Unknown position, keep polling until we don't know
-        }
-        //vTaskDelay(5); satans freertos, he bli jobbit dähä
-    }
     while (1)
     {
         uint32_t start = GET_CLOCK_TIME();
         TCUIO::update_io_layer();
-        if (CHECK_MODE_BIT_ENABLED(DEVICE_MODE_SLAVE)) {
-            SOLENOID_CONTROL_EGS_SLAVE slave_rq = egs_can_hal->get_tester_req();
-            sol_mpc->set_current_target(__builtin_bswap16(slave_rq.MPC_REQ));
-            sol_spc->set_current_target(__builtin_bswap16(slave_rq.SPC_REQ));
-            sol_tcc->set_duty(slave_rq.TCC_REQ * 16); // x16 to go from 8 bit (0-255) to 12bit (0-4096)
-            if (slave_rq.Y3_EN) {
-                sol_y3->on();
-            }
-            else {
-                sol_y3->off();
-            }
-            if (slave_rq.Y4_EN) {
-                sol_y4->on();
-            }
-            else {
-                sol_y4->off();
-            }
-            if (slave_rq.Y5_EN) {
-                sol_y5->on();
-            }
-            else {
-                sol_y5->off();
-            }
-            SENSOR_REPORT_EGS_SLAVE sensor_rpt;
-
-            this->process_speed_sensors();
-
-
-            uint8_t pll = TCUIO::parking_lock();
-            int16_t tft = TCUIO::atf_temperature();
-            uint16_t vbatt = TCUIO::battery_mv();
-
-            sensor_rpt.N2_RAW = __builtin_bswap16(this->speed_sensors.n2);
-            sensor_rpt.N3_RAW = __builtin_bswap16(this->speed_sensors.n3);
-            sensor_rpt.TFT = pll ? 0xFF : tft + 50;
-            sensor_rpt.VBATT = (vbatt / 100) & 0xFF;
-
-            SOLENOID_REPORT_EGS_SLAVE sol_rpt;
-            sol_rpt.MPC_CURR = __builtin_bswap16(sol_mpc->get_current());
-            sol_rpt.SPC_CURR = __builtin_bswap16(sol_spc->get_current());
-            sol_rpt.TCC_PWM = (sol_tcc->get_pwm_raw() / 16) & 0xFF;
-
-            UN52_REPORT_EGS_SLAVE un52_rpt;
-            un52_rpt.Y3_CURR = __builtin_bswap16(sol_y3->get_current());
-            un52_rpt.Y4_CURR = __builtin_bswap16(sol_y4->get_current());
-            un52_rpt.Y5_CURR = __builtin_bswap16(sol_y5->get_current());
-            un52_rpt.TCC_CURR = __builtin_bswap16(sol_tcc->get_current());
-
-            egs_can_hal->set_slave_mode_reports(sol_rpt, sensor_rpt, un52_rpt);
-            vTaskDelay(20);
-            continue;
-        }
-        if (this->diag_stop_control)
-        {
-            vTaskDelay(50);
-            continue;
-        }
 
         // Set sensors Motor temperature (Always ran)
         int16_t coolant_temp = egs_can_hal->get_engine_coolant_temp(50);
 
-        bool speeds_valid = this->process_speed_sensors();
-        if (speeds_valid)
-        {
-            this->cached_input_rpm = first_order_filter(3, speed_sensors.turbine * 100, this->cached_input_rpm);
-            this->sensor_data.input_rpm = this->cached_input_rpm / 100;
-            this->cached_output_rpm = first_order_filter(3, speed_sensors.output * 100, this->cached_output_rpm);
-            this->sensor_data.output_rpm = this->cached_output_rpm / 100;
-            bool stationary = this->is_stationary();
-            if (!stationary)
-            {
-                // Store our ratio
-                this->sensor_data.gear_ratio = (float)this->sensor_data.input_rpm / (float)this->sensor_data.output_rpm;
-                this->sensor_data.targ_gear_ratio = ratio_absolute(this->actual_gear, &this->gearboxConfig);
-
-            }
-            else {
-                // Stationary so no ratios
-                this->sensor_data.gear_ratio = 0.0;
-                this->sensor_data.targ_gear_ratio = 0.0;
-            }
-            if (!shifting && !stationary && sensor_data.output_rpm > 250)
-            {
-                if (is_fwd_gear(this->actual_gear))
-                {
-                    if (calcGearFromRatio(false) && this->est_gear_idx != 0)
-                    {
-                        // Compare gears
-                        GearboxGear estimate = gear_from_idx(this->est_gear_idx);
-                        if (estimate != this->actual_gear)
-                        {
-                            gear_disagree_count++;
-                            if (gear_disagree_count >= 50)
-                            {
-                                this->actual_gear = estimate; // DID NOT SHIFT!
-                                this->target_gear = estimate;
-                                this->last_fwd_gear = estimate;
-                            }
-                        }
-                        else
-                        {
-                            gear_disagree_count = 0;
-                        }
-                    }
-                }
-                else
-                {
-                    gear_disagree_count = 0;
-                }
-            }
-            else
-            {
-                gear_disagree_count = 0;
-            }
-        }
-        else
-        {
-            speeds_valid = false;
-            gear_disagree_count = 0;
-        }
-        if (speeds_valid && !this->is_stationary())
-        {
-            bool rev = !is_fwd_gear(this->target_gear);
-            if (!this->calcGearFromRatio(rev))
-            {
-                // ESP_LOG_LEVEL(ESP_LOG_ERROR, "GEARBOX", "GEAR RATIO IMPLAUSIBLE");
-            }
-        }
         uint8_t p_tmp = egs_can_hal->get_pedal_value(1000);
         this->pedal_last = this->sensor_data.pedal_pos;
         if (p_tmp != 0xFF)
@@ -1288,7 +1131,7 @@ void Gearbox::controller_loop()
         }
 
         // Wheel torque
-        /*
+        
         if (this->sensor_data.gear_ratio == 0)
         {
             // Fallback ratio for when gear ratio is actually 0
@@ -1326,7 +1169,6 @@ void Gearbox::controller_loop()
         {
             egs_can_hal->set_wheel_torque_multi_factor(this->sensor_data.gear_ratio);
         }
-        */
 
         // ESP_LOG_LEVEL(ESP_LOG_INFO, "GEARBOX", "Torque: MIN: %3d, MAX: %3d, STAT: %3d", min_torque, max_torque, static_torque);
         //  Show debug symbols on IC
@@ -1441,40 +1283,6 @@ bool Gearbox::process_speed_sensors()
     }
 
     return ok;
-}
-
-bool Gearbox::calcGearFromRatio(bool is_reverse)
-{
-    float ratio = (float)this->sensor_data.input_rpm / (float)this->sensor_data.output_rpm;
-    //ESP_LOGI("CGFR", "R %.3f", ratio);
-    if (is_reverse)
-    {
-        ratio *= -1;
-        for (uint8_t i = 0; i < 2; i++)
-        { // Scan the 2 reverse gears
-            GearRatioInfo limits = gearboxConfig.bounds[i + 5];
-            if (ratio >= limits.ratio_min_drift && ratio <= limits.ratio_max_drift)
-            {
-                //ESP_LOGI("CGFR", "G %d", i+1);
-                this->est_gear_idx = i + 1;
-                return true;
-            }
-        }
-    }
-    else
-    {
-        for (uint8_t i = 0; i < 5; i++)
-        { // Scan the 5 forwards gears
-            GearRatioInfo limits = gearboxConfig.bounds[i];
-            if (ratio >= limits.ratio_min_drift && ratio <= limits.ratio_max_drift)
-            {
-                this->est_gear_idx = i + 1;
-                return true;
-            }
-        }
-    }
-    this->est_gear_idx = 0;
-    return false;
 }
 
 Gearbox* gearbox = nullptr;
