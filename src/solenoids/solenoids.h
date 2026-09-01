@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include "pwm_solenoid.h"
-#include "inrush_solenoid.h"
+//#include "inrush_solenoid.h"
 #include "on_off_solenoid.h"
 #include "cc_solenoid.h"
 
@@ -36,7 +36,7 @@ extern OnOffSolenoid *sol_y5;
 
 extern ConstantCurrentSolenoid *sol_mpc;
 extern ConstantCurrentSolenoid *sol_spc;
-extern InrushControlSolenoid *sol_tcc;
+//extern InrushControlSolenoid *sol_tcc;
 
 extern float resistance_spc;
 extern float resistance_mpc;
