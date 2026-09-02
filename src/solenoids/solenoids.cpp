@@ -14,12 +14,12 @@
 #include "esp_timer.h"
 #include "tcu_io/tcu_io.hpp"
 
-OnOffSolenoid* sol_y3 = nullptr;
-OnOffSolenoid* sol_y4 = nullptr;
-OnOffSolenoid* sol_y5 = nullptr;
+//OnOffSolenoid* sol_y3 = nullptr;
+//OnOffSolenoid* sol_y4 = nullptr;
+//OnOffSolenoid* sol_y5 = nullptr;
 
 ConstantCurrentSolenoid* sol_mpc = nullptr;
-ConstantCurrentSolenoid* sol_spc = nullptr;
+//ConstantCurrentSolenoid* sol_spc = nullptr;
 
 #define NUM_SOLENOIDS 6
 struct SolenoidOutputSummary {
@@ -229,12 +229,7 @@ esp_err_t Solenoids::init_all_solenoids()
     sol_y5 = new OnOffSolenoid("Y5", ledc_timer_t::LEDC_TIMER_0, pcb_gpio_matrix->y5_pwm, ledc_channel_t::LEDC_CHANNEL_2, ADC_CHANNEL_7, 250, 1524, 1);
     sol_mpc = new ConstantCurrentSolenoid("MPC", ledc_timer_t::LEDC_TIMER_0, pcb_gpio_matrix->mpc_pwm, ledc_channel_t::LEDC_CHANNEL_3, ADC_CHANNEL_6, 1);
     sol_spc = new ConstantCurrentSolenoid("SPC", ledc_timer_t::LEDC_TIMER_0, pcb_gpio_matrix->spc_pwm, ledc_channel_t::LEDC_CHANNEL_4, ADC_CHANNEL_4, 1);
-   ESP_RETURN_ON_ERROR(sol_tcc->init_ok(), "SOLENOID", "TCC init not OK");
-    ESP_RETURN_ON_ERROR(sol_mpc->init_ok(), "SOLENOID", "MPC init not OK");
-    ESP_RETURN_ON_ERROR(sol_spc->init_ok(), "SOLENOID", "SPC init not OK");
-    ESP_RETURN_ON_ERROR(sol_y3->init_ok(), "SOLENOID", "Y3 init not OK");
-    ESP_RETURN_ON_ERROR(sol_y4->init_ok(), "SOLENOID", "Y4 init not OK");
-    ESP_RETURN_ON_ERROR(sol_y5->init_ok(), "SOLENOID", "Y5 init not OK");
+
     xTaskCreate(update_solenoids, "LEDC-Update", 8192, nullptr, 10, nullptr);
     xTaskCreatePinnedToCore(read_solenoids_i2s, "I2S-Reader", 2048, nullptr, 3, nullptr, 1);
     return ESP_OK;
