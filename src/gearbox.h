@@ -95,6 +95,6 @@ private:
     int32_t cached_output_rpm = 0;
 };
 
-extern Gearbox* gearbox;
+
 
 #endif

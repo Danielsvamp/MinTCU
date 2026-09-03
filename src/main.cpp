@@ -12,6 +12,10 @@
 #include <stdint.h>
 #include "gearbox.h"
 
+#include "shifter/shifter.h"
+#include "shifter/shifter_ewm.h"
+
+
 #include <AVR_PWM.h>
 #undef B1
 
@@ -37,13 +41,16 @@ float TARGET_DUTY  = 50.0f;
 
 AVR_PWM* mpc_pwm = nullptr;
 
+
 void setup() {
-    pinMode(MPC_PWM_PIN, OUTPUT);
-    digitalWrite(MPC_PWM_PIN, LOW); // Start OFF
+    shifter = new ShifterEwm(&VEHICLE_CONFIG, &ETS_CURRENT_SETTINGS);
+    gearbox = new Gearbox(shifter);
 }
 
 void loop() {
-    gearbox->controller_loop();
+    if (gearbox != nullptr) {
+         gearbox->controller_loop();
+    }
 }
 
 

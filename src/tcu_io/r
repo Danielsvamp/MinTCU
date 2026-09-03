@@ -1,0 +1,35 @@
+
+
+void Gearbox::controller_loop()
+{
+    ShifterPosition last_position = ShifterPosition::SignalNotAvailable;
+    ESP_LOG_LEVEL(ESP_LOG_INFO, "GEARBOX", "GEARBOX START!");
+    uint32_t expire_check = GET_CLOCK_TIME() + 100; // 100ms
+
+    while (1)
+    {
+        uint32_t start = GET_CLOCK_TIME();
+        TCUIO::update_io_layer();
+        
+        if (GET_CLOCK_TIME() - start > 100) {
+            // Update every 100ms, not every EGS cycle, values multiplied by 10
+            // to get them in terms of 1 second (1s/100ms = 10)
+            if (this->pedal_delta) {
+                this->pedal_delta->update(this->sensor_data.pedal_pos * 10);
+            }
+            if (this->input_rpm_delta) {
+                this->input_rpm_delta->update(this->sensor_data.input_rpm * 10);
+            }
+            this->last_delta_time = start;
+        }
+        
+        portEXIT_CRITICAL(&this->profile_mutex);
+        pressure_mgr->update_pressures(this->actual_gear, GearChange::_IDLE);
+        uint32_t time = GET_CLOCK_TIME() - start;
+        if (time < 20) {
+            vTaskDelay((20 - time) / portTICK_PERIOD_MS); // 50 updates/sec!
+        }
+    }
+}
+
+

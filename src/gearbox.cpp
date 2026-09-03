@@ -45,10 +45,14 @@ Gearbox::Gearbox(Shifter* shifter) : shifter(shifter)
 }
 
 void Gearbox::controller_loop() {
-	static uint32_t last_start = 0;
+	static uint32_t last_frame_time = 0; // i'll call this loop a frame i guess
+	static uint32_t last_delta_time = 0;
+	
     uint32_t start = GET_CLOCK_TIME();
-    if (start - last_start < 20) {return;} // should run at 50 hz, unless something else takes too long
-    last_start = start;
+    if (start - last_frame_time < 20) {
+    return; // should run at 50 hz, unless something else takes too long
+    }
+    last_frame_time = start;
 	
     TCUIO::update_io_layer();
 
@@ -64,21 +68,7 @@ void Gearbox::controller_loop() {
     else {
         p_tmp = 250 / 4; // 25% as a fallback
     }
-    
-    this->sensor_data.pedal_pos_smoothed = linear_interp_with_percentage(80, p_tmp, this->sensor_data.pedal_pos_smoothed);
-
-    if (GET_CLOCK_TIME() - start > 100) {
-        // Update every 100ms, not every EGS cycle, values multiplied by 10
-        // to get them in terms of 1 second (1s/100ms = 10)
-        if (this->pedal_delta) {
-            this->pedal_delta->update(this->sensor_data.pedal_pos * 10);
-        }
-        if (this->input_rpm_delta) {
-            this->input_rpm_delta->update(this->sensor_data.input_rpm * 10);
-        }
-        this->last_delta_time = start;
-    }
-
+       
     int tmp_rpm = 0;
     tmp_rpm = egs_can_hal->get_engine_rpm(1000);
     if (tmp_rpm == UINT16_MAX)
@@ -105,6 +95,7 @@ void Gearbox::controller_loop() {
         this->sensor_data.atf_temp = tmp_atf;
     }
     
+    // update can shit
     egs_can_hal->set_gearbox_temperature(this->sensor_data.atf_temp);
     egs_can_hal->set_shifter_position(this->shifter_pos);
     egs_can_hal->set_input_shaft_speed(this->sensor_data.input_rpm);
