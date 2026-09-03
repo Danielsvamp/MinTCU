@@ -6,7 +6,7 @@
 #include "tcu_io/tcu_io.hpp"
 #include <stdlib.h> //manuellt hidlagt
 
-Gearbox::Gearbox(Shifter* shifter) : shifter(shifter), kickdown(), brake_pedal()
+Gearbox::Gearbox(Shifter* shifter) : shifter(shifter)
 {
     this->sensor_data = SensorData{
         .input_rpm = 0,
@@ -38,139 +38,97 @@ Gearbox::Gearbox(Shifter* shifter) : shifter(shifter), kickdown(), brake_pedal()
     // IMPORTANT - Set the Ratio2/Ratio1 multiplier for the sensor RPM reading algorithm!
     TCUIO::set_2_1_ratio(r1 / r2);
 
-    this->pressure_mgr = new PressureManager(&this->sensor_data, this->gearboxConfig.max
+    this->pressure_mgr = new PressureManager(&this->sensor_data, this->gearboxConfig.max_torque);
     pressure_manager = this->pressure_mgr;
     
     // Wait for solenoid routine to complete
 }
 
-void Gearbox::controller_loop()
-{
-    ShifterPosition last_position = ShifterPosition::SignalNotAvailable;
-    uint32_t expire_check = GET_CLOCK_TIME() + 100; // 100ms
+void Gearbox::controller_loop() {
+	static uint32_t last_start = 0;
+    uint32_t start = GET_CLOCK_TIME();
+    if (start - last_start < 20) {return;} // should run at 50 hz, unless something else takes too long
+    last_start = start;
+	
+    TCUIO::update_io_layer();
 
-    while (1)
+    // Set sensors Motor temperature (Always ran)
+    int16_t coolant_temp = egs_can_hal->get_engine_coolant_temp(50);
+
+    uint8_t p_tmp = egs_can_hal->get_pedal_value(1000);
+    this->pedal_last = this->sensor_data.pedal_pos;
+    if (p_tmp != 0xFF)
     {
-        uint32_t start = GET_CLOCK_TIME();
-        TCUIO::update_io_layer();
-
-        // Set sensors Motor temperature (Always ran)
-        int16_t coolant_temp = egs_can_hal->get_engine_coolant_temp(50);
-
-        uint8_t p_tmp = egs_can_hal->get_pedal_value(1000);
-        this->pedal_last = this->sensor_data.pedal_pos;
-        if (p_tmp != 0xFF)
-        {
-            this->sensor_data.pedal_pos = p_tmp;
-        }
-        else {
-            p_tmp = 250 / 4; // 25% as a fallback
-        }
-        
-        this->sensor_data.pedal_pos_smoothed = linear_interp_with_percentage(80, p_tmp, this->sensor_data.pedal_pos_smoothed);
-
-        if (GET_CLOCK_TIME() - start > 100) {
-            // Update every 100ms, not every EGS cycle, values multiplied by 10
-            // to get them in terms of 1 second (1s/100ms = 10)
-            if (this->pedal_delta) {
-                this->pedal_delta->update(this->sensor_data.pedal_pos * 10);
-            }
-            if (this->input_rpm_delta) {
-                this->input_rpm_delta->update(this->sensor_data.input_rpm * 10);
-            }
-            this->last_delta_time = start;
-        }
-
-        int tmp_rpm = 0;
-        tmp_rpm = egs_can_hal->get_engine_rpm(1000);
-        if (tmp_rpm == UINT16_MAX)
-        {
-            tmp_rpm = this->sensor_data.engine_rpm; // Sub last value!
-        }
-        this->cached_engine_rpm = first_order_filter(3, tmp_rpm * 100, this->cached_engine_rpm);
-        this->sensor_data.engine_rpm = this->cached_engine_rpm / 100;
-        
-        // Update solenoids, only if engine RPM is OK
-        if (tmp_rpm > 400)
-        {
-            if (!shifting)
-            {
-                this->mpc_working = pressure_mgr->find_working_mpc_pressure(this->actual_gear, true);
-                this->pressure_mgr->set_target_modulating_pressure(this->mpc_working);
-            }
-        }
-
-        // update atf temp
-        int16_t tmp_atf = TCUIO::atf_temperature();
-        if (INT16_MAX != tmp_atf)
-        {
-            this->sensor_data.atf_temp = tmp_atf;
-        }
-        
-        egs_can_hal->set_gearbox_temperature(this->sensor_data.atf_temp);
-        egs_can_hal->set_shifter_position(this->shifter_pos);
-        egs_can_hal->set_input_shaft_speed(this->sensor_data.input_rpm);
-        egs_can_hal->set_tcc_trq_multiplier(this->sensor_data.tcc_trq_multiplier);
-        
-        CanTorqueData trqs = egs_can_hal->get_torque_data(100);
-        // CALC TORQUES
-        if (INT16_MAX != trqs.m_min) { sensor_data.min_torque = trqs.m_min; }
-        if (INT16_MAX != trqs.m_max) { sensor_data.max_torque = trqs.m_max; }
-        if (INT16_MAX != trqs.m_ind) { sensor_data.indicated_torque = trqs.m_ind; }
-        if (INT16_MAX != trqs.m_converted_static) { sensor_data.converted_torque = trqs.m_converted_static; }
-        if (INT16_MAX != trqs.m_converted_driver) {
-            int input_trq = InputTorqueModel::get_input_torque(
-                sensor_data.engine_rpm,
-                sensor_data.input_rpm,
-                trqs.m_converted_driver
-            );
-            sensor_data.input_torque = input_trq;
-            sensor_data.converted_driver_torque = trqs.m_converted_driver;
-        }
-
-        pressure_mgr->update_pressures(this->actual_gear, GearChange::_IDLE);
-        uint32_t time = GET_CLOCK_TIME() - start;
-        if (time < 20) {
-            vTaskDelay((20 - time) / portTICK_PERIOD_MS); // 50 updates/sec!
-        }
-    }
-}
-
-bool Gearbox::process_speed_sensors()
-{
-    bool ok = true;
-    bool conduct_sanity_check = gear_disagree_count == 0 &&
-        (this->actual_gear == this->target_gear) && (                                                 // Same gear (Not shifting)
-            (this->actual_gear == GearboxGear::Second) || // And in 2..
-            (this->actual_gear == GearboxGear::Third) ||  // .. or 3 ..
-            (this->actual_gear == GearboxGear::Fourth)    // .. or 4
-            );
-    uint16_t n2 = TCUIO::n2_rpm();
-    uint16_t n3 = TCUIO::n3_rpm();
-    uint16_t output = TCUIO::output_rpm();
-
-    if (UINT16_MAX != n2 && UINT16_MAX != n3) {
-        uint16_t turbine = TCUIO::calc_turbine_rpm(n2, n3);
-        if (conduct_sanity_check) {
-            if (abs(n2 - n3) > 100) {
-                ok = false;
-            }
-        }
-        if (ok) {
-            this->speed_sensors.turbine = turbine;
-        }
-        this->speed_sensors.n2 = n2;
-        this->speed_sensors.n3 = n3;
-    }
-
-    if (UINT16_MAX != output) {
-        speed_sensors.output = output;
+        this->sensor_data.pedal_pos = p_tmp;
     }
     else {
-        ok = false; // Output RPM failed
+        p_tmp = 250 / 4; // 25% as a fallback
+    }
+    
+    this->sensor_data.pedal_pos_smoothed = linear_interp_with_percentage(80, p_tmp, this->sensor_data.pedal_pos_smoothed);
+
+    if (GET_CLOCK_TIME() - start > 100) {
+        // Update every 100ms, not every EGS cycle, values multiplied by 10
+        // to get them in terms of 1 second (1s/100ms = 10)
+        if (this->pedal_delta) {
+            this->pedal_delta->update(this->sensor_data.pedal_pos * 10);
+        }
+        if (this->input_rpm_delta) {
+            this->input_rpm_delta->update(this->sensor_data.input_rpm * 10);
+        }
+        this->last_delta_time = start;
     }
 
-    return ok;
+    int tmp_rpm = 0;
+    tmp_rpm = egs_can_hal->get_engine_rpm(1000);
+    if (tmp_rpm == UINT16_MAX)
+    {
+        tmp_rpm = this->sensor_data.engine_rpm; // Sub last value!
+    }
+    this->cached_engine_rpm = first_order_filter(3, tmp_rpm * 100, this->cached_engine_rpm);
+    this->sensor_data.engine_rpm = this->cached_engine_rpm / 100;
+    
+    // Update solenoids, only if engine RPM is OK
+    if (tmp_rpm > 400)
+    {
+        if (!shifting)
+        {
+            this->mpc_working = pressure_mgr->find_working_mpc_pressure(this->actual_gear, true);
+            this->pressure_mgr->set_target_modulating_pressure(this->mpc_working);
+        }
+    }
+
+    // update atf temp
+    int16_t tmp_atf = TCUIO::atf_temperature();
+    if (INT16_MAX != tmp_atf)
+    {
+        this->sensor_data.atf_temp = tmp_atf;
+    }
+    
+    egs_can_hal->set_gearbox_temperature(this->sensor_data.atf_temp);
+    egs_can_hal->set_shifter_position(this->shifter_pos);
+    egs_can_hal->set_input_shaft_speed(this->sensor_data.input_rpm);
+    egs_can_hal->set_tcc_trq_multiplier(this->sensor_data.tcc_trq_multiplier);
+    
+    CanTorqueData trqs = egs_can_hal->get_torque_data(100);
+    // CALC TORQUES
+    if (INT16_MAX != trqs.m_min) { sensor_data.min_torque = trqs.m_min; }
+    if (INT16_MAX != trqs.m_max) { sensor_data.max_torque = trqs.m_max; }
+    if (INT16_MAX != trqs.m_ind) { sensor_data.indicated_torque = trqs.m_ind; }
+    if (INT16_MAX != trqs.m_converted_static) { sensor_data.converted_torque = trqs.m_converted_static; }
+    if (INT16_MAX != trqs.m_converted_driver) {
+        int input_trq = InputTorqueModel::get_input_torque(
+            sensor_data.engine_rpm,
+            sensor_data.input_rpm,
+            trqs.m_converted_driver
+        );
+        sensor_data.input_torque = input_trq;
+        sensor_data.converted_driver_torque = trqs.m_converted_driver;
+    }
+
+    pressure_mgr->update_pressures(this->actual_gear, GearChange::_IDLE);
 }
+
+
 
 Gearbox* gearbox = nullptr;

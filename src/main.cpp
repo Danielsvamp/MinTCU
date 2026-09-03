@@ -10,6 +10,7 @@
 
 #include <Arduino.h>
 #include <stdint.h>
+#include "gearbox.h"
 
 #include <AVR_PWM.h>
 #undef B1
@@ -30,9 +31,9 @@ const int tcc = 13;
 
 // v Arduino testing v
 
-constexpr uint8_t MPC_PWM_PIN = 11;
-constexpr float   MPC_PWM_FREQ = 1000.0f; // 1 kHz
-constexpr float   TARGET_DUTY  = 50.0f;   // Locked at 50%
+uint8_t MPC_PWM_PIN = 11;
+float MPC_PWM_FREQ = 1000.0f;
+float TARGET_DUTY  = 50.0f;
 
 AVR_PWM* mpc_pwm = nullptr;
 
@@ -42,13 +43,7 @@ void setup() {
 }
 
 void loop() {
-    // 1. Turn Gate HIGH (MOSFET ON)
-    digitalWrite(MPC_PWM_PIN, HIGH);
-    delay(500);
-
-    // 2. Turn Gate LOW (MOSFET OFF)
-    digitalWrite(MPC_PWM_PIN, LOW);
-    delay(500);
+    gearbox->controller_loop();
 }
 
 

@@ -1,7 +1,7 @@
 #include "pressure_manager.h"
 #include <stdlib.h> //måst va jär fö ja veit int naa vannifrån abs() kombe från i un52
 #include <tcu_maths.h>
-//#include "solenoids/solenoids.h"
+#include "solenoids/solenoids.h"
 //#include "maps.h"
 #include "common_structs_ops.h"
 //#include "nvs/module_settings.h"
@@ -9,21 +9,15 @@
 //#include "nvs/all_keys.h"
 #include "egs_calibration/calibration_structs.h"
 
-uint8_t PressureManager::sliding_coefficient() const {
-    return 140;
-}
-uint8_t PressureManager::release_coefficient() const {
-    return 120;
-}
-uint8_t PressureManager::stationary_coefficient() const {
-    return 100;
-}
+PressureManager::PressureManager(SensorData* sensor_ptr, uint16_t max_torque) {
 
-uint16_t PressureManager::get_max_solenoid_pressure() {
-    return HYDR_PTR->pcs_map_x[6];
-}
+    this->target_modulating_pressure = this->get_max_solenoid_pressure();
+
+    this->pressure_pwm_map = new LookupRefMap((int16_t*)HYDR_PTR->pcs_map_x, 7, (int16_t*)HYDR_PTR->pcs_map_y, 4, (int16_t*)HYDR_PTR->pcs_map_z, 7*4);
+};
 
 uint16_t PressureManager::calc_current_linear_sol(uint16_t p_targ, GearboxGear current_gear, GearChange change_state) {
+
     int factor;
     uint16_t extra_p = 0;
     if (GearChange::_IDLE == change_state) { // Not shifting
@@ -75,12 +69,10 @@ uint16_t PressureManager::calc_current_linear_sol(uint16_t p_targ, GearboxGear c
     return output_p;
 }
 
-PressureManager::PressureManager(SensorData* sensor_ptr, uint16_t max_torque) {
-
-    this->target_modulating_pressure = this->get_max_solenoid_pressure();
-
-    this->pressure_pwm_map = new LookupRefMap((int16_t*)HYDR_PTR->pcs_map_x, 7, (int16_t*)HYDR_PTR->pcs_map_y, 4, (int16_t*)HYDR_PTR->pcs_map_z, 7*4);
-};
+void PressureManager::update_pressures(GearboxGear current_gear, GearChange change_state) {
+    this->corrected_mpc_pressure = this->calc_current_linear_sol(this->target_modulating_pressure, current_gear, change_state);
+    sol_mpc->set_current_target(this->pressure_pwm_map->get_value(this->corrected_mpc_pressure, sensor_data->atf_temp+50.0));
+}
 
 uint16_t PressureManager::p_clutch_with_coef(GearboxGear gear, Clutch clutch, uint16_t torque, CoefficientTy coefType) {
     uint8_t gearId = gear_to_idx_lookup(gear);
@@ -100,9 +92,19 @@ uint16_t PressureManager::p_clutch_with_coef(GearboxGear gear, Clutch clutch, ui
             coef = 100;
     }
 
-    uint16_t friction = MECH_PTR->clutchFrictionKF[(gearId * 6) + (uint8_t)clutch];
+    uint16_t friction = MECH_PTR->friction_map[(gearId * 6) + (uint8_t)clutch];
     uint32_t calc = ((uint32_t)torque * (uint32_t)friction) / coef;
     return (uint16_t)calc;
+}
+
+uint8_t PressureManager::sliding_coefficient() const {
+    return 140;
+}
+uint8_t PressureManager::release_coefficient() const {
+    return 120;
+}
+uint8_t PressureManager::stationary_coefficient() const {
+    return 100;
 }
 
 uint16_t PressureManager::find_working_mpc_pressure(GearboxGear curr_g, bool flush_logic) {
@@ -118,7 +120,7 @@ uint16_t PressureManager::find_working_mpc_pressure(GearboxGear curr_g, bool flu
         output = 0;
     } else {
         float ret = p_clutch_with_coef(curr_g, (Clutch)clutchId, abs(sensor_data->input_torque), CoefficientTy::Static);
-        ret += (MECH_PTR->releaseSpringPressureKL[clutchId] + HYDR_PTR->extraPressureNotShifting);
+        ret += (MECH_PTR->releaseSpringPressureKL[clutchId] + HYDR_PTR->extra_p_not_shifting);
         if (curr_g == GearboxGear::First || curr_g == GearboxGear::Reverse_First) {
             ret *= (HYDR_PTR->p_multi_1 / 1000.0);
         } else {
@@ -170,27 +172,30 @@ uint16_t PressureManager::find_working_mpc_pressure(GearboxGear curr_g, bool flu
     return output;
 }
 
-void PressureManager::update_pressures(GearboxGear current_gear, GearChange change_state) {
-    // This is my best guess at interpreting the assembly (Decompiler view messes a lot up with this function due to indirections)
+uint16_t PressureManager::get_max_solenoid_pressure() {
+    return HYDR_PTR->pcs_map_x[6];
+}
 
-    // -- Set solenoid currents --
-    /* Uncomment when shifting is relevant!
-    if (this->shift_sol_en) {
-        this->corrected_spc_pressure = this->calc_current_linear_sol(this->target_shift_pressure, current_gear, change_state);
-        sol_spc->set_current_target(this->pressure_pwm_map->get_value(this->corrected_spc_pressure, sensor_data->atf_temp+50.0));
-    } else {
-        this->corrected_spc_pressure = getMaxPcsPressure();
-        sol_spc->set_current_target(0);
-    }
-    
-    this->corrected_spc_pressure = getMaxPcsPressure();
-    sol_spc->set_current_target(0);
-    */
-   
-    this->corrected_mpc_pressure = this->calc_current_linear_sol(this->target_modulating_pressure, current_gear, change_state);
-    sol_mpc->set_current_target(this->pressure_pwm_map->get_value(this->corrected_mpc_pressure, sensor_data->atf_temp+50.0));
-   
-    /* Uncomment when TCC is relevant!
-    sol_tcc->set_duty(this->get_tcc_solenoid_pwm_duty(this->target_tcc_pressure));
-    */
+uint16_t PressureManager::get_spring_pressure(Clutch c) {
+    return MECH_PTR->release_spring_pressure[(uint8_t)c];
+}
+
+uint16_t PressureManager::get_calc_line_pressure(void) const {
+    return this->calculated_working_pressure;
+}
+
+uint16_t PressureManager::get_calc_inlet_pressure(void) const {
+    return this->calculated_inlet_pressure;
+}
+
+uint16_t PressureManager::get_input_modulating_pressure(void) const {
+    return this->target_modulating_pressure;
+}
+
+uint16_t PressureManager::get_corrected_modulating_pressure(void) const {
+    return this->corrected_mpc_pressure;
+}
+
+void PressureManager::set_target_modulating_pressure(uint16_t targ) {
+    this->target_modulating_pressure = targ;
 }

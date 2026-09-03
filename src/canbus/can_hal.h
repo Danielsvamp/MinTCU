@@ -7,6 +7,7 @@
 #define ABSTRACT_CAN_H
 
 #include <stdint.h>
+#include <limits.h> //manuellt hidlagt
 //#include <freertos/FreeRTOS.h>
 //#include <freertos/task.h>
 //#include <esp_log.h>
@@ -39,7 +40,7 @@ class EgsBaseCan {
 
         ~EgsBaseCan();        
         bool begin_task();
-        esp_err_t init_state() const;
+        //esp_err_t init_state() const;
 
         /**
          * Getters
@@ -217,10 +218,11 @@ class EgsBaseCan {
          * 
          * @param expire_time_ms data expiration period
          * @return True if the profile switch is in the top position
-         */
+         
         virtual ProfileSwitchPos get_profile_switch_pos(const uint32_t expire_time_ms) {
             return ProfileSwitchPos::SNV;
         }
+        */
 
         /**
          * @brief MANDITORY DATA - Returns if the brake pedal is being pressed
@@ -306,7 +308,7 @@ class EgsBaseCan {
         // Sets display profile
         virtual void set_display_gear(GearboxDisplayGear g, bool manual_mode){};
         // Sets drive profile
-        virtual void set_drive_profile(GearboxProfile p){};
+        //virtual void set_drive_profile(GearboxProfile p){};
         // Sets display message
         virtual void set_display_msg(GearboxMessage msg){};
         // Set bit to signify the gearbox is aborting the shift
@@ -329,18 +331,19 @@ class EgsBaseCan {
             this->send_messages = false;
         }
 
+        /*
         // For diagnostics
         void register_diag_queue(QueueHandle_t* rx_queue, uint16_t rx_id) {
             this->diag_rx_queue = rx_queue;
             this->diag_rx_id = rx_id;
         }
-
+            
         SOLENOID_CONTROL_EGS_SLAVE get_tester_req() { // Never expires
             SOLENOID_CONTROL_EGS_SLAVE dest = {0};
             this->egs_slave_mode_tester.get_SOLENOID_CONTROL(GET_CLOCK_TIME(), UINT32_MAX, &dest);
             return dest;
         }
-
+        
         void set_slave_mode_reports(
             SOLENOID_REPORT_EGS_SLAVE sol_rpt,
             SENSOR_REPORT_EGS_SLAVE sensor_rpt,
@@ -350,12 +353,13 @@ class EgsBaseCan {
             this->sensors_slave_resp = sensor_rpt;
             this->un52_slave_resp = un52_rpt;
         }
+        */
 
         Shifter* shifter;
 
     protected:
         const char* name;
-        TaskHandle_t task = nullptr;
+        //TaskHandle_t task = nullptr;
         uint8_t tx_time_ms = 0;
         uint32_t last_tx_time = 0;
         uint16_t diag_tx_id = 0;
@@ -374,10 +378,10 @@ class EgsBaseCan {
 
         bool send_messages = true;
 
-        QueueHandle_t* diag_rx_queue;
-        twai_status_info_t can_status;
-        esp_err_t can_init_status;
-        twai_message_t tx;
+        //QueueHandle_t* diag_rx_queue;
+        //twai_status_info_t can_status;
+        //esp_err_t can_init_status;
+        //twai_message_t tx;
         inline void to_bytes(uint64_t src, uint8_t* dst) {
             for(uint8_t i = 0; i < 8; i++) {
                 dst[7-i] = src & 0xFF;
@@ -385,10 +389,12 @@ class EgsBaseCan {
             }
         }
 
+        /*
         ECU_TESTER egs_slave_mode_tester;
         SOLENOID_REPORT_EGS_SLAVE solenoid_slave_resp;
         SENSOR_REPORT_EGS_SLAVE sensors_slave_resp;
         UN52_REPORT_EGS_SLAVE un52_slave_resp;
+        */
         uint64_t bus_reset_time = 0;
         uint8_t bus_reset_count = 0;
 };

@@ -17,7 +17,7 @@ namespace Solenoids {
      * @return true All solenoids initialized OK
      * @return false A solenoid failed to initialize
      */
-    esp_err_t init_all_solenoids(void);
+    void init_all_solenoids(void);
     uint16_t get_solenoid_voltage(void);
 
     void boot_solenoid_test(void*);

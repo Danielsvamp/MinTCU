@@ -15,11 +15,11 @@
 #include "pressure_manager.h"
 #include "models/input_torque.hpp"
 //#include "adaptation/shift_adaptation.h"
-#include "models/clutch_speed.hpp"
+//#include "models/clutch_speed.hpp"
 #include "shifter/shifter.h"
 //#include "inputcomponents/brakepedal.hpp"
 //#include "inputcomponents/kickdownswitch.hpp"
-//#include "driver_dynamics/dynamics.h"
+#include "driver_dynamics/dynamics.h"
 //#include "runtime_sensors/runtime_sensors.h"
 
 struct PostShiftTorqueRamp {
@@ -31,60 +31,21 @@ struct PostShiftTorqueRamp {
 class Gearbox {
 public:
     explicit Gearbox(Shifter* shifter);
-    // Diag test
-    ClutchSpeeds diag_get_clutch_speeds();
-    void set_profile(AbstractProfile* prof);
-    esp_err_t start_controller(void);
-    void inc_gear_request(void);
-    void dec_gear_request(void);
-    void diag_inhibit_control(void) { this->diag_stop_control = true; }
-    void diag_regain_control(void) { this->diag_stop_control = false; }
     SensorData sensor_data;
-    OutputData output_data;
-    uint16_t get_gear_ratio(void) {
-        return this->sensor_data.gear_ratio * 100.0F;
-    }
-    uint16_t get_targ_gear_ratio(void) {
-        return this->sensor_data.targ_gear_ratio * 100.0F;
-    }
-    uint16_t redline_rpm;
+
     bool shifting = false;
+    
     PressureManager* pressure_mgr = nullptr;
 
-    bool isShifting(void) { return this->shifting; }
-    uint8_t get_targ_curr_gear(void) { return (((uint8_t)this->target_gear) & 0x0F) << 4 | ((uint8_t)this->actual_gear & 0x0F); }
-    uint8_t get_profile_id(void) {
-        if (this->current_profile) {
-            return this->current_profile->get_profile_id();
-        } else {
-            return 0xFF;
-        }
-    }
-    TorqueConverter* tcc = nullptr;
-    ShiftAlgoFeedback algo_feedback = {0,0,0,0,0,0,0,0,0,0,0,0,0};
-    ShiftAdaptationSystem* shift_adapter = nullptr;
-    SpeedSensors speed_sensors;
-private:
-    bool is_stationary();
-    ShiftReportSegment collect_report_segment(uint64_t start_time);
-    void set_torque_request(TorqueRequestControlType ctrl_type, TorqueRequestBounds bounds, float amount);
-    bool elapse_shift(GearChange req_lookup, AbstractProfile* profile, bool manually_requested);
-    bool calcGearFromRatio(bool is_reverse);
+    void controller_loop(void);
 
-    AbstractProfile* current_profile = nullptr;
-    portMUX_TYPE profile_mutex;
+private:
+
     GearboxGear target_gear = GearboxGear::Park;
     GearboxGear actual_gear = GearboxGear::Park;
     GearboxGear last_fwd_gear = GearboxGear::Second;
-    bool process_speed_sensors();
-    [[noreturn]]
-    void controller_loop(void);
 
-    void shift_thread(void);
     bool start_second = true; // By default
-    static void start_shift_thread(void *_this) {
-        static_cast<Gearbox*>(_this)->shift_thread();
-    }
 
     [[noreturn]]
     static void start_controller_internal(void *_this) {
@@ -93,7 +54,6 @@ private:
     uint16_t temp_raw = 0;
     uint8_t pedal_last = 0;
     uint16_t input_last = 0;
-    TaskHandle_t shift_task = nullptr;
     bool ask_upshift = false;
     bool ask_downshift = false;
     bool manual_shift = false;
@@ -129,9 +89,6 @@ private:
 
     int req_static_torque_delta = 0;
     bool freeze_torque = false;
-
-    KickdownSwitch kickdown;
-    BrakePedal brake_pedal;
 
     int32_t cached_input_rpm = 0;
     int32_t cached_engine_rpm = 0;
