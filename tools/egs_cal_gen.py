@@ -188,8 +188,13 @@ def c_value(ty, v):
     return str(v)
 
 
-def c_struct(ty_name, var, rec):
-    lines = ['%s %s = {' % (ty_name, var)]
+def c_struct(ty_name, var, rec, flash=False):
+    # flash: 'const ... PROGMEM', the AVR keeps it in flash instead of copying it to RAM
+    if flash:
+        lines = ['extern const %s %s; // const alone would be internal to this file' % (ty_name, var),
+                 'const %s %s PROGMEM = {' % (ty_name, var)]
+    else:
+        lines = ['%s %s = {' % (ty_name, var)]
     for name, ty, v in rec['data']:
         lines.append('    %s, // %s' % (c_value(ty, v), name))
     lines.append('};')
@@ -242,6 +247,7 @@ def main():
 // EGS: %s, chassis: %s, gearbox: %s
 // Hydraulic: %s, mechanical: %s, torque converter: %s, shift algorithm: %s
 #include "calibration_structs.h"
+#include <avr/pgmspace.h>
 
 static_assert(sizeof(ShiftAlgorithmPack) == %d, "ShiftAlgorithmPack layout does not match egs_db.bin");
 
@@ -262,7 +268,7 @@ const char CAL_DESCRIPTION[] = "EGS %s %s %s hydr %s mech %s tcc %s shift %s";
        c_struct('HydraulicCalibration', 'HYDR_CAL', hydr),
        c_struct('MechanicalCalibration', 'MECH_CAL', mech),
        c_struct('TorqueConverterCalibration', 'TCC_CAL', tcc),
-       c_struct('ShiftAlgorithmPack', 'SHIFT_ALGO_CAL', shift))
+       c_struct('ShiftAlgorithmPack', 'SHIFT_ALGO_CAL', shift, flash=True))
     with open(a.out, 'w') as f:
         f.write(src)
     print('Wrote %s (%s)' % (os.path.normpath(a.out), 'EGS %s %s %s' % (pn, c['chassis'], c['gearbox'])))

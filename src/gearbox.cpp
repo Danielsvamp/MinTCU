@@ -67,7 +67,7 @@ Gearbox::Gearbox()
 
     this->pressure_mgr = new PressureManager(&this->sensor_data, this->gearboxConfig.max_torque);
     pressure_manager = this->pressure_mgr;
-    this->tcc = new TorqueConverter();
+    this->tcc = new TorqueConverter(this->gearboxConfig.max_torque);
     // MinTCU only has the Manual profile (+/- on the selector)
     Profiles::init_profiles(VEHICLE_CONFIG.engine_type == 0);
     this->current_profile = manual;
@@ -1249,6 +1249,13 @@ void Gearbox::controller_loop() {
         sensor_data.input_torque = input_trq;
         sensor_data.converted_driver_torque = trqs.m_converted_driver;
     }
+    sensor_data.pump_torque = InputTorqueModel::get_pump_torque(sensor_data.engine_rpm, sensor_data.input_rpm);
+
+    if (this->shifting && is_controllable_gear(this->target_gear) && !is_controllable_gear(this->actual_gear)) {
+        if (INT16_MAX != sensor_data.pump_torque) {
+            sensor_data.input_torque = sensor_data.pump_torque * sensor_data.tcc_trq_multiplier;
+        }
+    }
 
     // Failsafe (Not in UN52, UN52 keeps the last torque value forever)
     // Anything we cannot trust -> 0mA on MPC/SPC = maximum line pressure, like an unpowered TCU
@@ -1284,6 +1291,14 @@ void Gearbox::controller_loop() {
         this->manual_shift = false;
     } else {
         this->process_gear_requests();
+    }
+    // TCC (Same as UN52: only with working speed sensors and in a forward gear, also during shifts)
+    if (!this->pressure_mgr->is_failsafe() && this->speeds_valid && is_fwd_gear(this->actual_gear)) {
+        if (is_fwd_gear(this->target_gear)) {
+            this->tcc->update(this->actual_gear, this->target_gear, this->pressure_mgr, this->current_profile, &this->sensor_data);
+        }
+    } else {
+        this->pressure_mgr->set_target_tcc_pressure(0);
     }
     this->update_gear(requested);
 
@@ -1383,6 +1398,12 @@ void Gearbox::print_log() {
     } else {
         Serial.print(this->fwd_result);
     }
+    Serial.print(',');
+    // TCC: O = open, S = slipping (UN52 InternalTccState), then the commanded pressure (mbar)
+    Serial.print(this->tcc->get_current_state() == (uint8_t)InternalTccState::Slipping ? 'S' : 'O');
+    Serial.print(this->pressure_mgr->get_targ_tcc_pressure());
+    Serial.print(',');
+    Serial.print(this->tcc->get_slip_now());
     Serial.print(',');
     Serial.print(this->failsafe_reasons, HEX);
     Serial.print(',');

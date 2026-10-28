@@ -6,6 +6,7 @@
 #include <lookupmap.h>
 #include "sensors.h"
 #include "lookuptable.h"
+#include "stored_map.h"
 #include <string.h>
 
 typedef struct {
@@ -99,7 +100,19 @@ public:
     void update_pressures(GearboxGear current_gear, GearChange change_state);
 
     /**
-     * @brief Failsafe: MPC and SPC at 0mA (maximum pressure) while active. Not in UN52.
+     * @brief Set the target TCC pressure (Torque converter)
+     *
+     * @param targ Target TCC pressure to achieve in mBar
+     */
+    void set_target_tcc_pressure(uint16_t targ);
+    uint16_t get_targ_tcc_pressure(void) const;
+    /**
+     * Returns the estimated PWM to send to the TCC solenoid
+     */
+    uint16_t get_tcc_solenoid_pwm_duty(uint16_t request_mbar) const;
+
+    /**
+     * @brief Failsafe: MPC and SPC at 0mA (maximum pressure) and TCC off while active. Not in UN52.
      */
     void set_failsafe(bool active);
     bool is_failsafe() const;
@@ -118,6 +131,9 @@ private:
     uint16_t calculated_inlet_pressure = 0;
 
     LookupMap* pressure_pwm_map;
+    // TCC pressure
+    uint16_t target_tcc_pressure = 0;
+    StoredMap* tcc_pwm_map;
     uint16_t gb_max_torque;
     bool mpc_flushing = false;
     uint8_t mpc_flush_timer = 0; // uint8_t like UN52. Note: mpc_no_flush_time (30000) gets truncated to 48 here, same as UN52

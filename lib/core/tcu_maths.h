@@ -2,6 +2,13 @@
 #define TCU_MATHS_H
 
 #include <stdint.h>
+#ifdef __AVR__
+    // MinTCU: the AVR copies every const table into RAM unless it is in PROGMEM (flash)
+    #include <avr/pgmspace.h>
+    #define TCU_FLASH PROGMEM
+#else
+    #define TCU_FLASH
+#endif
 
 // Core maths and calculation stuff this the TCM uses
 
@@ -20,7 +27,7 @@ typedef struct {
 
 #define RAMP_FUNC_INTERP_POINTS 21
 
-const static interp_mapping_t EASE_IN_EASE_OUT_INTERP_LOOKUP[RAMP_FUNC_INTERP_POINTS] = {
+const static interp_mapping_t EASE_IN_EASE_OUT_INTERP_LOOKUP[RAMP_FUNC_INTERP_POINTS] TCU_FLASH = {
     {0,   0.00},
     {5,   0.61},
     {10,  2.45},
@@ -44,7 +51,7 @@ const static interp_mapping_t EASE_IN_EASE_OUT_INTERP_LOOKUP[RAMP_FUNC_INTERP_PO
     {100, 100.00},
 };
 
-const static interp_mapping_t EASE_IN_INTERP_LOOKUP[RAMP_FUNC_INTERP_POINTS] = {
+const static interp_mapping_t EASE_IN_INTERP_LOOKUP[RAMP_FUNC_INTERP_POINTS] TCU_FLASH = {
     {0,   0.00},
     {5,   0.30},
     {10,  1.23},
@@ -68,7 +75,7 @@ const static interp_mapping_t EASE_IN_INTERP_LOOKUP[RAMP_FUNC_INTERP_POINTS] = {
     {100, 100.00},
 };
 
-const static interp_mapping_t EASE_OUT_INTERP_LOOKUP[RAMP_FUNC_INTERP_POINTS] = {
+const static interp_mapping_t EASE_OUT_INTERP_LOOKUP[RAMP_FUNC_INTERP_POINTS] TCU_FLASH = {
     {0,   0.00},
     {5,   7.85},
     {10, 15.64},
@@ -142,6 +149,7 @@ int32_t linear_ramp_with_timer(int32_t start, int32_t end, int32_t current_timer
 short linear_interp_with_percentage(uint16_t percentage, short new_value, short last_filtered_val);
 
 int32_t first_order_filter(uint8_t sample_count, int32_t new_val, int32_t last_val);
+int16_t clampint16(int32_t value);
 float first_order_filter_f(uint8_t sample_count, int32_t new_val, float last_val);
 
 #endif // TCU_MATHS_H

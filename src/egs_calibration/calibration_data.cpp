@@ -4,6 +4,7 @@
 // EGS: 0305452032, chassis: 210.016, gearbox: 722.634 W5A580
 // Hydraulic: STDP, mechanical: var7, torque converter: 0000, shift algorithm: SM06
 #include "calibration_structs.h"
+#include <avr/pgmspace.h>
 
 static_assert(sizeof(ShiftAlgorithmPack) == 672, "ShiftAlgorithmPack layout does not match egs_db.bin");
 
@@ -66,7 +67,8 @@ TorqueConverterCalibration TCC_CAL = {
     {4333, 4676, 4756, 4584, 3976, 3699, 3250, 0, 1295, 5284, 17305}, // pump_map_z
 };
 
-ShiftAlgorithmPack SHIFT_ALGO_CAL = {
+extern const ShiftAlgorithmPack SHIFT_ALGO_CAL; // const alone would be internal to this file
+const ShiftAlgorithmPack SHIFT_ALGO_CAL PROGMEM = {
     {7, 17, 44}, // momentum_1_2_x
     {11, 28, 72}, // momentum_2_3_x
     {18, 69, 117}, // momentum_3_4_x

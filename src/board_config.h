@@ -20,7 +20,7 @@ enum class Pin : uint8_t {
     y5_pwm     = 8,  // Y5 (2-3) shift solenoid (Timer4 PWM)
     mpc_pwm    = 11, // Modulating pressure solenoid (Timer1 OC1A)
     spc_pwm    = 12, // Shift pressure solenoid (Timer1 OC1B)
-    tcc_pwm    = 13, // Torque converter solenoid (kept OFF for now, pin 13 is Timer0 which millis() uses)
+    tcc_pwm    = 5,  // Torque converter solenoid (Timer3 OC3A, see solenoids/inrush_solenoid.h)
     can_cs     = 53, // MCP2515 chip select
     can_int    = 2,  // MCP2515 INT pin (must be an interrupt pin: 2, 3, 18, 19, 20, 21)
     n2_pin     = 18, // N2 input speed sensor (INT3)

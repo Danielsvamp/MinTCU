@@ -8,6 +8,7 @@ ConstantCurrentSolenoid* sol_spc = nullptr;
 OnOffSolenoid* sol_y3 = nullptr;
 OnOffSolenoid* sol_y4 = nullptr;
 OnOffSolenoid* sol_y5 = nullptr;
+InrushControlSolenoid* sol_tcc = nullptr;
 
 void Solenoids::init_all_solenoids() {
     ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
@@ -31,6 +32,10 @@ void Solenoids::init_all_solenoids() {
     sol_y3 = new OnOffSolenoid("Y3", toRaw(Pin::y3_pwm), 250, 1524);
     sol_y4 = new OnOffSolenoid("Y4", toRaw(Pin::y4_pwm), 250, 1524);
     sol_y5 = new OnOffSolenoid("Y5", toRaw(Pin::y5_pwm), 250, 1524);
+    // Same as UN52 (100Hz, ~700mA for TCC solenoid when holding)
+    sol_tcc = new InrushControlSolenoid("TCC", 100, 700, 10);
+    sol_tcc->set_duty(0);
+    sol_tcc->isr_enable();
 }
 
 void Solenoids::update_shift_solenoids(uint16_t battery_mv) {

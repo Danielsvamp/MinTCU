@@ -5,7 +5,7 @@ extern const bool CAL_GENERATED;
 extern HydraulicCalibration HYDR_CAL;
 extern MechanicalCalibration MECH_CAL;
 extern TorqueConverterCalibration TCC_CAL;
-extern ShiftAlgorithmPack SHIFT_ALGO_CAL;
+extern const ShiftAlgorithmPack SHIFT_ALGO_CAL; // In flash (PROGMEM)
 
 // Same sizes as the config app (EgsStoredCalibration element_size_bytes), so the generator
 // and the structs cannot get out of step
@@ -17,7 +17,7 @@ static_assert(sizeof(ShiftAlgorithmPack) == 672, "ShiftAlgorithmPack layout chan
 HydraulicCalibration* HYDR_PTR = &HYDR_CAL;
 MechanicalCalibration* MECH_PTR = &MECH_CAL;
 TorqueConverterCalibration* TCC_CFG_PTR = &TCC_CAL;
-ShiftAlgorithmPack* SHIFT_ALGO_CFG_PTR = &SHIFT_ALGO_CAL;
+const ShiftAlgorithmPack* SHIFT_ALGO_CFG_PTR = &SHIFT_ALGO_CAL;
 
 bool EGSCal::init_egs_calibration() {
     if (!CAL_GENERATED) {

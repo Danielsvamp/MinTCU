@@ -2,6 +2,7 @@
 #define SHIFT_ADAPTATION_H
 
 #include <stdint.h>
+#include "stored_map.h"
 
 /*
     MinTCU has no shift adaptation. UN52's adaptation (adaptation/shift_adaptation.cpp) stores its
@@ -10,18 +11,12 @@
     The shift algorithms only use it through ShiftInterfaceData::adaptation_mgr, and check it for
     nullptr first. MinTCU always passes nullptr, which is the same as UN52 without an adaptation manager.
     These declarations are only here so the UN52 shift algorithm code compiles unchanged, nothing
-    creates a ShiftAdaptationSystem or a StoredMap.
+    creates a ShiftAdaptationSystem.
 */
 
 // Same as UN52 adaptation/shift_adaptation.cpp
 const int16_t TRQ_ADAPT_X[] = {1000, 1500, 2000, 4000};
 const int16_t TRQ_ADAPT_Y_PULL[] = {0, 20, 50, 100, 150};
-
-class StoredMap {
-public:
-    float get_value(float x_value, float y_value) { return 0; }
-    bool add_value(int16_t sample_point_value, int16_t x_value, int16_t y_value, float threshold) { return false; }
-};
 
 class ShiftAdaptationSystem {
 public:

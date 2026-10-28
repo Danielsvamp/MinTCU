@@ -70,7 +70,7 @@ void setup() {
         Serial.println(F("No output speed sensor, output RPM is estimated from input RPM and gear (Set VEHICLE_CONFIG.input_sensor_pulses_per_rev)"));
     }
 
-    Serial.println(F("ms,rpm,n2,n3,input_rpm,output_rpm,ratio,pedal,trq_sta,trq_drv,trq_in,shifter,gear,atf,vbatt,mpc_targ,mpc_corr,mpc_ma,mpc_ma_est,duty_permille,spc_ma,shift_sol,garage,shift,failsafe,can_ovf"));
+    Serial.println(F("ms,rpm,n2,n3,input_rpm,output_rpm,ratio,pedal,trq_sta,trq_drv,trq_in,shifter,gear,atf,vbatt,mpc_targ,mpc_corr,mpc_ma,mpc_ma_est,duty_permille,spc_ma,shift_sol,garage,shift,tcc,slip,failsafe,can_ovf"));
     // If the loop ever hangs for 250ms, the Mega resets. Pins go high-Z in reset,
     // the gate pull-downs turn the solenoids off = max pressure
     wdt_enable(WDTO_250MS);

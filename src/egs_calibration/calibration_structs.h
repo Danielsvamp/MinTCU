@@ -165,7 +165,9 @@ typedef struct {
 extern HydraulicCalibration* HYDR_PTR;
 extern MechanicalCalibration* MECH_PTR;
 extern TorqueConverterCalibration* TCC_CFG_PTR;
-extern ShiftAlgorithmPack* SHIFT_ALGO_CFG_PTR;
+// MinTCU: SHIFT_ALGO_CAL is in flash (PROGMEM, 672 bytes of RAM otherwise), so this points to flash.
+// Read it with memcpy_P / pgm_read_byte, not directly (Only PressureManager's constructor uses it)
+extern const ShiftAlgorithmPack* SHIFT_ALGO_CFG_PTR;
 
 namespace EGSCal {
     /**

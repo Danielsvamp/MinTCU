@@ -78,6 +78,14 @@ class EgsBaseCan {
         }
 
         /**
+         * @brief Engine request to open the TCC or let it slip (Same as UN52, not on EGS51.
+         * Not ported for EGS52 yet)
+         */
+        virtual TccReqState get_engine_tcc_override_request(const uint32_t expire_time_ms) {
+            return TccReqState::None;
+        }
+
+        /**
          * @brief Number of times the CAN controller ran out of RX buffers (Frames lost)
          */
         virtual uint16_t get_rx_overflow_count() { return 0; }

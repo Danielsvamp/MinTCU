@@ -6,9 +6,10 @@
 #include "nvs/module_settings.h"
 #include "egs_calibration/calibration_structs.h"
 #include "maps.h"
+#include <avr/pgmspace.h>
 
 /*
-    Ported from UN52 pressure_manager.cpp (Everything except TCC control).
+    Ported from UN52 pressure_manager.cpp.
 
     NOTE: int is 16 bit on the Mega2560 (32 bit on the ESP32 UN52 runs on), so every
     calculation that can go above 32767 is done in int32_t here.
@@ -16,51 +17,66 @@
 
 PressureManager* pressure_manager = nullptr;
 
+// MinTCU: SHIFT_ALGO_CAL is in flash (see calibration_structs.h). Copy the map out of flash first,
+// LookupByteMap then copies it to the heap like UN52 (So it only needs to be in RAM here)
+static LookupByteMap* new_byte_map_from_flash(const uint8_t* x, const uint16_t x_size, const uint8_t* y, const uint16_t y_size, const uint8_t* z, const uint16_t z_size) {
+    uint8_t buf_x[6];
+    uint8_t buf_y[10];
+    uint8_t buf_z[60];
+    if (x_size > sizeof(buf_x) || y_size > sizeof(buf_y) || z_size > sizeof(buf_z)) {
+        return nullptr;
+    }
+    memcpy_P(buf_x, x, x_size);
+    memcpy_P(buf_y, y, y_size);
+    memcpy_P(buf_z, z, z_size);
+    return new LookupByteMap(buf_x, x_size, buf_y, y_size, buf_z, z_size);
+}
+
 PressureManager::PressureManager(SensorData* sensor_ptr, uint16_t max_torque) {
     this->sensor_data = sensor_ptr;
     this->gb_max_torque = max_torque;
 
     this->pressure_pwm_map = new LookupRefMap((int16_t*)HYDR_PTR->pcs_map_x, 7, (int16_t*)HYDR_PTR->pcs_map_y, 4, (int16_t*)HYDR_PTR->pcs_map_z, 7*4);
 
-    this->momentum_upshifts[0] = new LookupByteMap(SHIFT_ALGO_CFG_PTR->momentum_1_2_x, 3, SHIFT_ALGO_CFG_PTR->momentum_1_2_y, 2, SHIFT_ALGO_CFG_PTR->momentum_1_2_z, 3*2);
-    this->momentum_upshifts[1] = new LookupByteMap(SHIFT_ALGO_CFG_PTR->momentum_2_3_x, 3, SHIFT_ALGO_CFG_PTR->momentum_2_3_y, 2, SHIFT_ALGO_CFG_PTR->momentum_2_3_z, 3*2);
-    this->momentum_upshifts[2] = new LookupByteMap(SHIFT_ALGO_CFG_PTR->momentum_3_4_x, 3, SHIFT_ALGO_CFG_PTR->momentum_3_4_y, 2, SHIFT_ALGO_CFG_PTR->momentum_3_4_z, 3*2);
-    this->momentum_upshifts[3] = new LookupByteMap(SHIFT_ALGO_CFG_PTR->momentum_4_5_x, 3, SHIFT_ALGO_CFG_PTR->momentum_4_5_y, 2, SHIFT_ALGO_CFG_PTR->momentum_4_5_z, 3*2);
+    this->momentum_upshifts[0] = new_byte_map_from_flash(SHIFT_ALGO_CFG_PTR->momentum_1_2_x, 3, SHIFT_ALGO_CFG_PTR->momentum_1_2_y, 2, SHIFT_ALGO_CFG_PTR->momentum_1_2_z, 3*2);
+    this->momentum_upshifts[1] = new_byte_map_from_flash(SHIFT_ALGO_CFG_PTR->momentum_2_3_x, 3, SHIFT_ALGO_CFG_PTR->momentum_2_3_y, 2, SHIFT_ALGO_CFG_PTR->momentum_2_3_z, 3*2);
+    this->momentum_upshifts[2] = new_byte_map_from_flash(SHIFT_ALGO_CFG_PTR->momentum_3_4_x, 3, SHIFT_ALGO_CFG_PTR->momentum_3_4_y, 2, SHIFT_ALGO_CFG_PTR->momentum_3_4_z, 3*2);
+    this->momentum_upshifts[3] = new_byte_map_from_flash(SHIFT_ALGO_CFG_PTR->momentum_4_5_x, 3, SHIFT_ALGO_CFG_PTR->momentum_4_5_y, 2, SHIFT_ALGO_CFG_PTR->momentum_4_5_z, 3*2);
     for (auto i = 0; i < 4; i++) {
-        if (!this->momentum_upshifts[i]->is_allocated()) {
+        if (nullptr != this->momentum_upshifts[i] && !this->momentum_upshifts[i]->is_allocated()) {
             delete this->momentum_upshifts[i];
             this->momentum_upshifts[i] = nullptr;
         }
     }
 
-    this->momentum_downshifts[0] = new LookupByteMap(SHIFT_ALGO_CFG_PTR->momentum_2_1_x, 6, SHIFT_ALGO_CFG_PTR->momentum_2_1_y, 10, SHIFT_ALGO_CFG_PTR->momentum_2_1_z, 6*10);
-    this->momentum_downshifts[1] = new LookupByteMap(SHIFT_ALGO_CFG_PTR->momentum_3_2_x, 6, SHIFT_ALGO_CFG_PTR->momentum_3_2_y, 10, SHIFT_ALGO_CFG_PTR->momentum_3_2_z, 6*10);
-    this->momentum_downshifts[2] = new LookupByteMap(SHIFT_ALGO_CFG_PTR->momentum_4_3_x, 6, SHIFT_ALGO_CFG_PTR->momentum_4_3_y, 10, SHIFT_ALGO_CFG_PTR->momentum_4_3_z, 6*10);
-    this->momentum_downshifts[3] = new LookupByteMap(SHIFT_ALGO_CFG_PTR->momentum_5_4_x, 6, SHIFT_ALGO_CFG_PTR->momentum_5_4_y, 10, SHIFT_ALGO_CFG_PTR->momentum_5_4_z, 6*10);
+    this->momentum_downshifts[0] = new_byte_map_from_flash(SHIFT_ALGO_CFG_PTR->momentum_2_1_x, 6, SHIFT_ALGO_CFG_PTR->momentum_2_1_y, 10, SHIFT_ALGO_CFG_PTR->momentum_2_1_z, 6*10);
+    this->momentum_downshifts[1] = new_byte_map_from_flash(SHIFT_ALGO_CFG_PTR->momentum_3_2_x, 6, SHIFT_ALGO_CFG_PTR->momentum_3_2_y, 10, SHIFT_ALGO_CFG_PTR->momentum_3_2_z, 6*10);
+    this->momentum_downshifts[2] = new_byte_map_from_flash(SHIFT_ALGO_CFG_PTR->momentum_4_3_x, 6, SHIFT_ALGO_CFG_PTR->momentum_4_3_y, 10, SHIFT_ALGO_CFG_PTR->momentum_4_3_z, 6*10);
+    this->momentum_downshifts[3] = new_byte_map_from_flash(SHIFT_ALGO_CFG_PTR->momentum_5_4_x, 6, SHIFT_ALGO_CFG_PTR->momentum_5_4_y, 10, SHIFT_ALGO_CFG_PTR->momentum_5_4_z, 6*10);
     for (auto i = 0; i < 4; i++) {
-        if (!this->momentum_downshifts[i]->is_allocated()) {
+        if (nullptr != this->momentum_downshifts[i] && !this->momentum_downshifts[i]->is_allocated()) {
             delete this->momentum_downshifts[i];
             this->momentum_downshifts[i] = nullptr;
         }
     }
 
-    this->torque_adder_upshifts[0] = new LookupByteMap(SHIFT_ALGO_CFG_PTR->trq_adder_1_2_x, 6, SHIFT_ALGO_CFG_PTR->trq_adder_1_2_y, 8, SHIFT_ALGO_CFG_PTR->trq_adder_1_2_z, 8*6);
-    this->torque_adder_upshifts[1] = new LookupByteMap(SHIFT_ALGO_CFG_PTR->trq_adder_2_3_x, 6, SHIFT_ALGO_CFG_PTR->trq_adder_2_3_y, 8, SHIFT_ALGO_CFG_PTR->trq_adder_2_3_z, 8*6);
-    this->torque_adder_upshifts[2] = new LookupByteMap(SHIFT_ALGO_CFG_PTR->trq_adder_3_4_x, 6, SHIFT_ALGO_CFG_PTR->trq_adder_3_4_y, 8, SHIFT_ALGO_CFG_PTR->trq_adder_3_4_z, 8*6);
-    this->torque_adder_upshifts[3] = new LookupByteMap(SHIFT_ALGO_CFG_PTR->trq_adder_4_5_x, 6, SHIFT_ALGO_CFG_PTR->trq_adder_4_5_y, 8, SHIFT_ALGO_CFG_PTR->trq_adder_4_5_z, 8*6);
+    this->torque_adder_upshifts[0] = new_byte_map_from_flash(SHIFT_ALGO_CFG_PTR->trq_adder_1_2_x, 6, SHIFT_ALGO_CFG_PTR->trq_adder_1_2_y, 8, SHIFT_ALGO_CFG_PTR->trq_adder_1_2_z, 8*6);
+    this->torque_adder_upshifts[1] = new_byte_map_from_flash(SHIFT_ALGO_CFG_PTR->trq_adder_2_3_x, 6, SHIFT_ALGO_CFG_PTR->trq_adder_2_3_y, 8, SHIFT_ALGO_CFG_PTR->trq_adder_2_3_z, 8*6);
+    this->torque_adder_upshifts[2] = new_byte_map_from_flash(SHIFT_ALGO_CFG_PTR->trq_adder_3_4_x, 6, SHIFT_ALGO_CFG_PTR->trq_adder_3_4_y, 8, SHIFT_ALGO_CFG_PTR->trq_adder_3_4_z, 8*6);
+    this->torque_adder_upshifts[3] = new_byte_map_from_flash(SHIFT_ALGO_CFG_PTR->trq_adder_4_5_x, 6, SHIFT_ALGO_CFG_PTR->trq_adder_4_5_y, 8, SHIFT_ALGO_CFG_PTR->trq_adder_4_5_z, 8*6);
     for (auto i = 0; i < 4; i++) {
-        if (!this->torque_adder_upshifts[i]->is_allocated()) {
+        if (nullptr != this->torque_adder_upshifts[i] && !this->torque_adder_upshifts[i]->is_allocated()) {
             delete this->torque_adder_upshifts[i];
             this->torque_adder_upshifts[i] = nullptr;
         }
     }
 
-    this->torque_adder_downshifts[0] = new LookupByteMap(SHIFT_ALGO_CFG_PTR->trq_adder_2_1_x, 3, SHIFT_ALGO_CFG_PTR->trq_adder_2_1_y, 4, SHIFT_ALGO_CFG_PTR->trq_adder_2_1_z, 3*4);
-    this->torque_adder_downshifts[1] = new LookupByteMap(SHIFT_ALGO_CFG_PTR->trq_adder_3_2_x, 3, SHIFT_ALGO_CFG_PTR->trq_adder_3_2_y, 4, SHIFT_ALGO_CFG_PTR->trq_adder_3_2_z, 3*4);
-    this->torque_adder_downshifts[2] = new LookupByteMap(SHIFT_ALGO_CFG_PTR->trq_adder_4_3_x, 3, SHIFT_ALGO_CFG_PTR->trq_adder_4_3_y, 4, SHIFT_ALGO_CFG_PTR->trq_adder_4_3_z, 3*4);
-    this->torque_adder_downshifts[3] = new LookupByteMap(SHIFT_ALGO_CFG_PTR->trq_adder_5_4_x, 3, SHIFT_ALGO_CFG_PTR->trq_adder_5_4_y, 4, SHIFT_ALGO_CFG_PTR->trq_adder_5_4_z, 3*4);
+    this->torque_adder_downshifts[0] = new_byte_map_from_flash(SHIFT_ALGO_CFG_PTR->trq_adder_2_1_x, 3, SHIFT_ALGO_CFG_PTR->trq_adder_2_1_y, 4, SHIFT_ALGO_CFG_PTR->trq_adder_2_1_z, 3*4);
+    this->torque_adder_downshifts[1] = new_byte_map_from_flash(SHIFT_ALGO_CFG_PTR->trq_adder_3_2_x, 3, SHIFT_ALGO_CFG_PTR->trq_adder_3_2_y, 4, SHIFT_ALGO_CFG_PTR->trq_adder_3_2_z, 3*4);
+    this->torque_adder_downshifts[2] = new_byte_map_from_flash(SHIFT_ALGO_CFG_PTR->trq_adder_4_3_x, 3, SHIFT_ALGO_CFG_PTR->trq_adder_4_3_y, 4, SHIFT_ALGO_CFG_PTR->trq_adder_4_3_z, 3*4);
+    this->torque_adder_downshifts[3] = new_byte_map_from_flash(SHIFT_ALGO_CFG_PTR->trq_adder_5_4_x, 3, SHIFT_ALGO_CFG_PTR->trq_adder_5_4_y, 4, SHIFT_ALGO_CFG_PTR->trq_adder_5_4_z, 3*4);
     for (auto i = 0; i < 4; i++) {
-        if (!this->torque_adder_downshifts[i]->is_allocated()) {
+        if (nullptr != this->torque_adder_downshifts[i] && !this->torque_adder_downshifts[i]->is_allocated()) {
             delete this->torque_adder_downshifts[i];
             this->torque_adder_downshifts[i] = nullptr;
         }
@@ -110,6 +126,15 @@ PressureManager::PressureManager(SensorData* sensor_ptr, uint16_t max_torque) {
     if (!this->fill_low_pressure_map->is_allocated()) {
         delete this->fill_low_pressure_map;
         this->fill_low_pressure_map = nullptr;
+    }
+
+    /** Pressure PWM map (TCC) **/
+    const int16_t pwm_tcc_x_headers[7] = {0, 2000, 4000, 5000, 7500, 10000, 15000};
+    const int16_t pwm_tcc_y_headers[5] = {0, 30, 60, 90, 120};
+    tcc_pwm_map = new StoredMap(nullptr /* UN52 NVS_KEY_MAP_NAME_TCC_PWM, not saved */, TCC_PWM_MAP_SIZE, pwm_tcc_x_headers, pwm_tcc_y_headers, 7, 5, TCC_PWM_MAP);
+    if (this->tcc_pwm_map->init_status() != ESP_OK) {
+        delete this->tcc_pwm_map;
+        this->tcc_pwm_map = nullptr;
     }
 
     // Init MPC and SPC req pressures
@@ -181,6 +206,7 @@ void PressureManager::update_pressures(GearboxGear current_gear, GearChange chan
         this->corrected_mpc_pressure = get_max_solenoid_pressure();
         sol_spc->set_current_target(0);
         sol_mpc->set_current_target(0);
+        sol_tcc->set_duty(0);
         return;
     }
     // -- Set solenoid currents --
@@ -193,6 +219,28 @@ void PressureManager::update_pressures(GearboxGear current_gear, GearChange chan
     }
     this->corrected_mpc_pressure = this->calc_current_linear_sol(this->target_modulating_pressure, current_gear, change_state);
     sol_mpc->set_current_target(this->pressure_pwm_map->get_value(this->corrected_mpc_pressure, sensor_data->atf_temp+50.0, 1));
+    sol_tcc->set_duty(this->get_tcc_solenoid_pwm_duty(this->target_tcc_pressure));
+}
+
+uint16_t PressureManager::get_tcc_solenoid_pwm_duty(uint16_t request_mbar) const {
+    if (request_mbar == 0) {
+        return 0; // Shortcut for when off
+    }
+    if (this->tcc_pwm_map == nullptr) {
+        return 0; // 0% (Failsafe - TCC off)
+    }
+    return this->tcc_pwm_map->get_value(request_mbar, this->sensor_data->atf_temp);
+}
+
+void PressureManager::set_target_tcc_pressure(uint16_t targ) {
+    if (targ > 15000) {
+        targ = 15000;
+    }
+    this->target_tcc_pressure = targ;
+}
+
+uint16_t PressureManager::get_targ_tcc_pressure(void) const {
+    return this->target_tcc_pressure;
 }
 
 void PressureManager::set_failsafe(bool active) {
@@ -205,6 +253,7 @@ void PressureManager::set_failsafe(bool active) {
         this->set_spc_p_max();
         // Next time we leave failsafe, start from max pressure and filter down (find_working_mpc_pressure)
         this->target_modulating_pressure = get_max_solenoid_pressure();
+        this->target_tcc_pressure = 0;
     }
 }
 

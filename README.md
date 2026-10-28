@@ -19,16 +19,20 @@ The pressure part of UN52, garage shifts (N/P to D/R) and manual up/downshifts w
 - Garage shifts, same as UN52: moving the selector from P/N to D or R engages the clutch (B2 for D, B3 for R) with the UN52 SPC/MPC ramps and shift solenoids, watching the input speed (N2/N3) slow down. Back to N/P aborts it. D engages 2nd (the 722.6 limp gear, same as UN52), the reverse gear is calculated as R1 (more pressure). If N2/N3 read nothing with the engine running, or in failsafe, D/R engages like limp mode (SPC at max pressure). Without the output speed sensor the 'car is still moving' check (output_rpm_force_n) cannot work, so only select D or R when stopped.
 - Manual up/downshifts, same as UN52 with the manual profile: + / - on the EWM (in D) asks for one gear up or down. The shift is refused if the engine would go below 900 RPM (upshift) or above redline - 100 (downshift). The manual profile also downshifts on its own when the input speed is below 300 RPM with the pedal released, and upshifts at the redline. The UN52 crossover and releasing shift algorithms (`src/shifting_algo/`) run with the original shift calibration (SM06 for 210.016). Differences from UN52:
   - No torque requests to the engine (MinTCU never transmits on CAN). This is UN52 with torque requests off, the algorithms add pressure instead.
-  - No shift adaptation and no TCC (always open).
+  - No shift adaptation.
   - No output speed sensor yet: `output_rpm` is calculated from the input speed and the gear ratio. During a shift it carries on at the rate it was changing before the shift. So MinTCU cannot see a wrong gear (for example after a reset while driving, it assumes 2nd).
   - `diff_ratio` and `engine_drag_torque` in `eeprom_config.cpp` are the UN52 defaults (1.000 and 40 Nm).
-- Shift solenoids Y3/Y4/Y5 (pins 6/7/8): 250 ms full on, then held at the UN52 hold PWM. TCC stays off.
+- Shift solenoids Y3/Y4/Y5 (pins 6/7/8): 250 ms full on, then held at the UN52 hold PWM.
+- Torque converter lock-up (TCC), same as UN52 (`src/torque_converter.cpp`): in a forward gear above 1000 RPM input it fills the converter clutch and then controls the slip (engine RPM - input RPM) to the UN52 slip target map, with the UN52 PID and adaptation. Differences from UN52:
+  - The TCC adaptation is not saved (no EEPROM use yet). It starts from the UN52 defaults (0) after every reset and learns again while driving.
+  - The TCC solenoid is on **pin 5** (Timer3). It is driven like UN52 (100 Hz, full on for up to 1.5 ms, then the 10 kHz hold PWM), with the times rounded to 100 us.
+  - The EDC15 (EGS51) does not ask for the TCC to open, so that part is never used. It is not read on EGS52 yet either.
 - Outside a shift SPC is at 0 mA (max pressure), like limp mode.
 - Failsafe: no calibration, engine off, torque frames missing for 200 ms, shifter missing, or battery outside 9-16 V -> MPC 0 mA = max pressure. It has to be OK for 1 s before it leaves failsafe. Watchdog resets the Mega if the loop hangs for 250 ms.
 
 ## Before the first test
 
-1. Check the pins and constants at the top of `src/board_config.h` (MCP2515 CS/INT, crystal, ADC reference, battery divider, ATF pull-up).
+1. Check the pins and constants at the top of `src/board_config.h` (MCP2515 CS/INT, crystal, ADC reference, battery divider, ATF pull-up). The TCC solenoid is on pin 5 (it was 13).
 2. Every solenoid MOSFET needs a flyback diode across the solenoid and a 10k gate pull-down, so a reset means 0 mA.
 3. Measure the MPC solenoid + harness resistance at the TCU plug and put it in `cc_reference_resistance` (`src/nvs/module_settings.h`).
 4. Check the calibration is for your gearbox (see below). Without one MinTCU stays in failsafe.
@@ -51,12 +55,13 @@ python3 tools/egs_cal_gen.py egs_db.bin --egs 0305452032 --chassis 210.016 --gea
 
 ## Serial log (115200, 10 Hz, CSV)
 
-`ms,rpm,n2,n3,input_rpm,output_rpm,ratio,pedal,trq_sta,trq_drv,trq_in,shifter,gear,atf,vbatt,mpc_targ,mpc_corr,mpc_ma,mpc_ma_est,duty_permille,spc_ma,shift_sol,garage,shift,failsafe,can_ovf`
+`ms,rpm,n2,n3,input_rpm,output_rpm,ratio,pedal,trq_sta,trq_drv,trq_in,shifter,gear,atf,vbatt,mpc_targ,mpc_corr,mpc_ma,mpc_ma_est,duty_permille,spc_ma,shift_sol,garage,shift,tcc,slip,failsafe,can_ovf`
 
 - `output_rpm` ends with `e` when it is calculated (no output speed sensor), `ratio` is input/output speed (0 when stopped or in P/N)
 - `shift_sol` is the active shift circuits in hex: 1 = 1-2 (Y3), 2 = 2-3 (Y5), 4 = 3-4 (Y4), 8 = 4-5 (Y3)
 - `garage` is `S<stage>.<substage>` during a garage shift, otherwise the last result: 0 = none yet, 1 = OK, 2 = aborted, 3 = skipped (no input speed)
 - `shift` is `C<n>.<phase>` (crossover) or `R<n>.<phase>` (releasing) during an up/downshift, `n` is the UN52 `GearChange` (1 = 1-2, 2 = 2-3, 3 = 3-4, 4 = 4-5, 5 = 2-1, 6 = 3-2, 7 = 4-3, 8 = 5-4). Otherwise the last result: 0 = none yet, 1 = OK, 2 = failed, 3 = aborted
+- `tcc` is `O` (open) or `S` (slipping / locked) and the TCC pressure in mbar, `slip` is engine RPM - input RPM
 - `gear` numbers are the UN52 `GearboxGear` enum (1 = 1st ... 5 = 5th, 8 = P, 9 = N, 10 = R1)
 - `atf` ends with `s` when the sensor is missing and 120 C is used for the pressure map
 - `failsafe` is hex bit flags: 1 = engine off, 2 = no torque, 4 = no shifter, 8 = recovering, 10 = no calibration

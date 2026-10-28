@@ -19,6 +19,18 @@ extern const int16_t NAG_FILL_PRESSURE_MAP[FILL_PRESSURE_MAP_SIZE];
 #define LOW_FILL_PRESSURE_MAP_SIZE 5 // Only for forward clutches (K1, K2, K3, B1, B2)
 extern const int16_t NAG_FILL_LOW_PRESSURE_MAP[LOW_FILL_PRESSURE_MAP_SIZE];
 
+#define TCC_PWM_MAP_SIZE 7*5 // 5 temp positions, 7 pressure readings
+extern const int16_t TCC_PWM_MAP[TCC_PWM_MAP_SIZE];
+
+#define TCC_RPM_TARGET_MAP_SIZE 11*8
+extern const int16_t TCC_RPM_TARGET_MAP[TCC_RPM_TARGET_MAP_SIZE];
+
+// From UN52 adapt_maps.h
+#define TCC_ADAPT_MAP_Z_SIZE 6*6
+extern const int16_t TCC_ADAPT_MAP_X[6];
+extern const int16_t TCC_ADAPT_MAP_Y[6];
+extern const int16_t TCC_ADAPT_MAP_Z[TCC_ADAPT_MAP_Z_SIZE];
+
 #define SHIFT_TIME_MAP_SIZE 30
 extern const int16_t M_UPSHIFT_TIME_MAP[SHIFT_TIME_MAP_SIZE];
 extern const int16_t M_DOWNSHIFT_TIME_MAP[SHIFT_TIME_MAP_SIZE];

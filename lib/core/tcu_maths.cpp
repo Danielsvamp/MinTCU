@@ -55,7 +55,16 @@ float interpolate_float(float raw, float new_min, float new_max, float raw_min, 
                 // therefore, index for each point is very easy to calculate:
                 // percentage / 5 = low_bound_idx
                 uint8_t i = input_percentage_as_int/5;
-                float percentage_output = interpolate(ptr[i].out, ptr[i+1].out, ptr[i].in, ptr[i+1].in, input_percentage);
+                interp_mapping_t p1, p2;
+#ifdef __AVR__
+                // Tables are in flash (TCU_FLASH)
+                memcpy_P(&p1, &ptr[i], sizeof(interp_mapping_t));
+                memcpy_P(&p2, &ptr[i+1], sizeof(interp_mapping_t));
+#else
+                p1 = ptr[i];
+                p2 = ptr[i+1];
+#endif
+                float percentage_output = interpolate(p1.out, p2.out, p1.in, p2.in, input_percentage);
                 ret = (((new_max - new_min) * percentage_output) / 100.0) + new_min;
             }
         }
@@ -118,4 +127,23 @@ short linear_interp_with_percentage(uint16_t percentage, short new_value, short 
     int32_t x1 = ((int32_t)percentage * (int32_t)new_value) / 100;
     int32_t x2 = ((int32_t)(100 - percentage) * (int32_t)last_filtered_val) / 100;
     return x1+x2;
+}
+// Same as UN52
+int16_t clampint16(int32_t value)
+{
+    int16_t result;
+
+    if (value < INT16_MIN)
+    {
+        result = INT16_MIN;
+    }
+    else if (value > INT16_MAX)
+    {
+        result = INT16_MAX;
+    }
+    else
+    {
+        result = (int16_t)value;
+    }
+    return result;
 }

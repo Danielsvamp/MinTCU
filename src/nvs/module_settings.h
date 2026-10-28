@@ -9,6 +9,63 @@
     No EEPROM yet, these are compiled in. SBS, ADP, REL and CRS are copied verbatim from UN52.
 */
 
+// Copied verbatim from UN52 nvs/module_settings.h
+// Torque converter setting
+typedef struct {
+    // Enable adaptation for all gears (Write to adaptation maps)
+    bool adapt_enable;
+    // Enable PID control for all gears (Realtime pressure correction)
+    bool pid_enable;
+    // Enable torque converter in D1
+    bool enable_d1;
+    // Enable torque converter in D2
+    bool enable_d2;
+    // Enable torque converter in D3
+    bool enable_d3;
+    // Enable torque converter in D4
+    bool enable_d4;
+    // Enable torque converter in D5
+    bool enable_d5;
+    // Open the converter to slipping (If locked) if the engine requests it
+    // This is used on the M113K platform when the supercharger clutch
+    // is about to engage, so that the shock of the supercharger coming on does
+    // not cause too much discomfort
+    bool react_on_engine_slip_request;
+    // Open the converter fully, if the engine requests it.
+    // This is usually used under very heavy load under low RPM
+    bool react_on_engine_open_request;
+    // Prefill pressure for the torque converter. When going from Open->Slipping,
+    // a burst of pressure is first sent in order to fill the converter faster
+    // UNIT: mBar
+    uint16_t prefill_pressure;
+    // Number of 20ms cycles to hold the converter at prefill_pressure for when
+    // prefilling
+    uint8_t prefill_cycles;
+    // DEBUG: Override the automatic calculation of max torque used for TCC adaptations.
+    //        Set to 0 to disable the override (Use automatic calculation), Set to any
+    //        other number to override max rated torque of the converter. IMPORTANT: If
+    //        modified, it is recommended to reset the TCC adaptation maps.
+    //
+    // UNIT: Nm
+    uint16_t tcc_max_trq_override;
+
+} __attribute__ ((packed)) TCC_MODULE_SETTINGS;
+
+const TCC_MODULE_SETTINGS TCC_DEFAULT_SETTINGS = {
+    .adapt_enable = true,
+    .pid_enable = true,
+    .enable_d1 = true,
+    .enable_d2 = true,
+    .enable_d3 = true,
+    .enable_d4 = true,
+    .enable_d5 = true,
+    .react_on_engine_slip_request = true,
+    .react_on_engine_open_request = true,
+    .prefill_pressure = 10000,
+    .prefill_cycles = 10,
+    .tcc_max_trq_override = 0,
+};
+
 // Solenoid settings
 typedef struct {
     // Below this battery voltage the MPC/SPC solenoids are switched off (0mA = max pressure)
@@ -487,6 +544,7 @@ const CRS_MODULE_SETTINGS CRS_DEFAULT_SETTINGS = {
 };
 
 
+extern TCC_MODULE_SETTINGS TCC_CURRENT_SETTINGS;
 extern SOL_MODULE_SETTINGS SOL_CURRENT_SETTINGS;
 extern GAR_MODULE_SETTINGS GAR_CURRENT_SETTINGS;
 extern PRM_MODULE_SETTINGS PRM_CURRENT_SETTINGS;

@@ -11,12 +11,15 @@ struct LookupCache {
     uint32_t timestamp_ms;
 } __attribute__((packed));
 
-const int MAX_LOOKUP_CACHE = 5; // I don't think any map has more than this many use cases
+// UN52 has 5. The cache is only read by the UN52 diagnostic app (copy_lookup_cache), which MinTCU
+// does not have, and every map has its own copy (60 bytes of RAM each with 5). MinTCU keeps 1.
+const int MAX_LOOKUP_CACHE = 1;
 
 class LookupMap {
     public:
         float get_value(const float xValue, const float yValue);
         float get_value(const float xValue, const float yValue, const uint8_t lookup_cache_idx);
+        bool add_value(const int16_t sample_point_value, const int16_t x_value, const int16_t y_value, const float threshold);
         void get_y_headers(uint16_t *size, int16_t **headers);
         float get_x_header_interpolated(const float value, const int16_t y) const;
         int16_t* get_current_data(void) const;
@@ -28,10 +31,6 @@ class LookupMap {
         LookupHeader* yHeader;
         uint16_t yHeaderSize;
         LookupCache lookup_cache[MAX_LOOKUP_CACHE] = {
-            {0,0,0},
-            {0,0,0},
-            {0,0,0},
-            {0,0,0},
             {0,0,0}
         };
 };
