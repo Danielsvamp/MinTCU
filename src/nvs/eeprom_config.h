@@ -7,7 +7,7 @@
 /*
     UN52's vehicle config struct (nvs/eeprom_config.h), same fields and names.
     MinTCU has no EEPROM storage yet, VEHICLE_CONFIG is compiled in (eeprom_config.cpp).
-    Only io_0_usage and input_sensor_pulses_per_rev are used so far.
+    Only egs_can_type, io_0_usage and input_sensor_pulses_per_rev are used so far.
 */
 struct __attribute__ ((packed)) TCM_CORE_CONFIG{
     uint8_t deprecated_is_large_nag;

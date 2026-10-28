@@ -12,7 +12,9 @@ TCM_CORE_CONFIG VEHICLE_CONFIG = {
     .red_line_rpm_diesel = 0,
     .red_line_rpm_petrol = 0,
     .engine_type = 0,
-    .egs_can_type = 0,
+    // CAN frames the engine ECU sends (Same numbers as UN52): 1 = EGS51, 2 = EGS52
+    // W210 EDC15C6 from an EGS51 car (722.634) = 1
+    .egs_can_type = 1,
     .shifter_style = 0, // EWM
     // 1 = dedicated output speed sensor on Pin::io_pin (Hall sensor)
     .io_0_usage = 1,

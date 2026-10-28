@@ -8,7 +8,8 @@
     Everything must be borrowed from UN52 as far as possible, because that works
 
     What runs now:
-    - CAN (MCP2515, listen only): engine torque, RPM, pedal, coolant temp, shifter position
+    - CAN (MCP2515, listen only, EGS51 or EGS52 frames): engine torque, RPM, pedal, coolant temp, shifter position
+    - N2/N3 input speed and a dedicated output speed sensor
     - MPC pressure from torque, same calculation as UN52, open loop current -> PWM
     - SPC at 0mA (max), Y3/Y4/Y5/TCC off, so the gearbox stays in 2nd (D) or R like limp mode
     - Failsafe: no torque / no shifter / engine off / bad battery voltage = 0mA = max pressure
@@ -19,7 +20,9 @@
 #include <avr/wdt.h>
 #include "board_config.h"
 #include "gearbox.h"
+#include "canbus/can_egs51.h"
 #include "canbus/can_egs52.h"
+#include "nvs/eeprom_config.h"
 #include "tcu_io/tcu_io.hpp"
 #include "sensors.h"
 #include "egs_calibration/calibration_structs.h"
@@ -44,9 +47,15 @@ void setup() {
 
     Solenoids::init_all_solenoids();
 
-    Egs52Can* can = new Egs52Can(toRaw(Pin::can_cs), toRaw(Pin::can_int));
-    egs_can_hal = can;
-    if (!can->begin()) {
+    // Same numbers as UN52 VEHICLE_CONFIG.egs_can_type
+    if (1 == VEHICLE_CONFIG.egs_can_type) {
+        Serial.println(F("CAN: EGS51"));
+        egs_can_hal = new Egs51Can(toRaw(Pin::can_cs), toRaw(Pin::can_int));
+    } else {
+        Serial.println(F("CAN: EGS52"));
+        egs_can_hal = new Egs52Can(toRaw(Pin::can_cs), toRaw(Pin::can_int));
+    }
+    if (!egs_can_hal->begin()) {
         // Keep going, every getter returns 'not available', so the gearbox stays in failsafe (0mA)
         Serial.println(F("CAN init FAILED (Check wiring, CS pin and CAN_CRYSTAL)"));
     }

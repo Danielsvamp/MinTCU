@@ -293,7 +293,7 @@ void Gearbox::print_log() {
     Serial.print(',');
     Serial.print(this->sensor_data.input_rpm);
     Serial.print(',');
-    Serial.print(TCUIO::output_rpm() != UINT16_MAX ? this->sensor_data.output_rpm : -1);
+    Serial.print(TCUIO::output_rpm() != UINT16_MAX ? (int32_t)this->sensor_data.output_rpm : (int32_t)-1);
     Serial.print(',');
     Serial.print(this->sensor_data.gear_ratio, 2);
     Serial.print(',');
