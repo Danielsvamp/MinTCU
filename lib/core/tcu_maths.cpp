@@ -63,8 +63,8 @@ float interpolate_float(float raw, float new_min, float new_max, float raw_min, 
     return ret;
 }
 
-int interpolate_int(int raw, int new_min, int new_max, int raw_min, int raw_max) {
-    int raw_limited = MAX(raw_min, MIN(raw, raw_max));
+int32_t interpolate_int(int32_t raw, int32_t new_min, int32_t new_max, int32_t raw_min, int32_t raw_max) {
+    int32_t raw_limited = MAX(raw_min, MIN(raw, raw_max));
     return (((new_max - new_min) * (raw_limited - raw_min)) / (raw_max - raw_min)) + new_min;
 }
 
@@ -87,13 +87,13 @@ float progress_between_targets(const float current, const float start, const flo
     return ((100.0F * (current - start)) / (end - start));
 }
 
-int linear_ramp_with_timer(int start, int end, int current_timer_val) {
+int32_t linear_ramp_with_timer(int32_t start, int32_t end, int32_t current_timer_val) {
     if (0 != current_timer_val) {
         if (start < end) {
-            int delta = (end-start)/current_timer_val;
+            int32_t delta = (end-start)/current_timer_val;
             end = start + delta;
         } else {
-            int delta = (start-end)/current_timer_val;
+            int32_t delta = (start-end)/current_timer_val;
             end = start - delta;
         }
     }
@@ -115,7 +115,7 @@ int32_t first_order_filter(uint8_t sample_count, int32_t new_val, int32_t last_v
 }
 
 short linear_interp_with_percentage(uint16_t percentage, short new_value, short last_filtered_val) {
-    int x1 = ((int)percentage * (int)new_value) / 100;
-    int x2 = ((int)(100 - percentage) * (int)last_filtered_val) / 100;
+    int32_t x1 = ((int32_t)percentage * (int32_t)new_value) / 100;
+    int32_t x2 = ((int32_t)(100 - percentage) * (int32_t)last_filtered_val) / 100;
     return x1+x2;
 }

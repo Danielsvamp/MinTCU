@@ -23,10 +23,12 @@ enum class Clutch {
 };
 
 
+// int32_t here, int16_t in UN52. The shift algorithms compare these with uint16_t thresholds, which on the
+// AVR (16 bit int) would be an unsigned compare and a negative clutch speed would look huge
 struct ShiftClutchData {
-    int16_t on_clutch_speed;
-    int16_t off_clutch_speed;
-    int16_t rear_sun_speed;
+    int32_t on_clutch_speed;
+    int32_t off_clutch_speed;
+    int32_t rear_sun_speed;
 };
 
 struct ShiftAlgoFeedback {
@@ -63,6 +65,8 @@ struct SensorData{
     uint8_t pedal_pos;
     /// Accelerator pedal position. 0-250, smoothed to 500ms
     uint8_t pedal_pos_smoothed;
+    /// Accelerator pedal delta per second (In %/sec),
+    int16_t pedal_delta_per_second;
     /// Transmission oil temperature in Celcius
     int16_t atf_temp;
     // Input shaft torque
@@ -85,6 +89,9 @@ struct SensorData{
     float tcc_trq_multiplier;
     bool kickdown_pressed;
     bool brake_pressed;
+
+    uint16_t wheel_speed_mps;
+    int16_t acceleration_ms2;
 };
 
 /*
@@ -155,13 +162,14 @@ struct CircuitInfo{
     ShiftCircuit shift_circuit;
     uint8_t targ_g;
     uint8_t curr_g;
+    // int32_t, int in UN52 (32 bit on the ESP32)
     /// 1000x real value
-    int pressure_multi_spc_int;
+    int32_t pressure_multi_spc_int;
     /// 1000x real value
-    int pressure_multi_mpc_int;
-    int mpc_pressure_spring_reduction;
+    int32_t pressure_multi_mpc_int;
+    int32_t mpc_pressure_spring_reduction;
     /// 100x real value
-    int centrifugal_factor_off_clutch_int;
+    int32_t centrifugal_factor_off_clutch_int;
 };
 
 #define RAT_1_IDX 0
@@ -193,8 +201,9 @@ struct GearboxConfiguration{
     GearRatioInfo bounds[7];
 };
 
-struct ShiftCharacteristics{
+struct ShiftCharacteristics {
     uint16_t target_shift_time;
+    bool extra_speed;
 };
 
 struct   __attribute__ ((packed)) ShiftReportSegment {

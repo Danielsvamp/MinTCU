@@ -119,7 +119,8 @@ float interpolate_float(float raw, float new_min, float new_max, float raw_min, 
  * @param raw_max Raw input value maximum value
  * @return Interpolated value
  */
-int interpolate_int(int raw, int new_min, int new_max, int raw_min, int raw_max);
+// MinTCU: int32_t (int in UN52, which is 32 bit on the ESP32)
+int32_t interpolate_int(int32_t raw, int32_t new_min, int32_t new_max, int32_t raw_min, int32_t raw_max);
 
 
 float interpolate_float(float raw, const LinearInterpSetting* settings, InterpType interp_type);
@@ -136,7 +137,8 @@ float progress_between_targets(const float current, const float start, const flo
 /// @return the interpolated function value
 float interpolate(const float f_1, const float f_2, const int16_t x_1, const int16_t x_2, const float x);
 
-int linear_ramp_with_timer(int start, int end, int current_timer_val);
+// MinTCU: int32_t (int in UN52, which is 32 bit on the ESP32)
+int32_t linear_ramp_with_timer(int32_t start, int32_t end, int32_t current_timer_val);
 short linear_interp_with_percentage(uint16_t percentage, short new_value, short last_filtered_val);
 
 int32_t first_order_filter(uint8_t sample_count, int32_t new_val, int32_t last_val);

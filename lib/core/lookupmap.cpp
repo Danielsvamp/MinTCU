@@ -2,6 +2,7 @@
 #include <tcu_maths_impl.h>
 #include <clock.h>
 #include <string.h>
+#include <stdlib.h>
 
 float LookupMap::get_value(const float xValue, const float yValue) {
     return this->get_value(xValue, yValue, 0);
@@ -120,4 +121,52 @@ LookupRefMap::LookupRefMap(int16_t* _xHeader, const uint16_t _xHeaderSize, int16
     this->table = new LookupRefTable(_xHeader, _xHeaderSize, _data, _dataSize);
     this->yHeader = new LookupRefHeader(_yHeader, _yHeaderSize);
     this->yHeaderSize = _yHeaderSize;
+}
+
+// Same as UN52 (TCU_HEAP_ALLOC is malloc here)
+LookupByteMap::LookupByteMap(uint8_t* _xHeader, const uint16_t _xHeaderSize, uint8_t* _yHeader, const uint16_t _yHeaderSize, uint8_t* _data, const uint16_t _dataSize) {
+    this->x_alloc = static_cast<int16_t*>(malloc(_xHeaderSize * sizeof(int16_t)));
+    this->y_alloc = static_cast<int16_t*>(malloc(_yHeaderSize * sizeof(int16_t)));
+    this->z_alloc = static_cast<int16_t*>(malloc(_dataSize * sizeof(int16_t)));
+    this->z_size = _dataSize;
+    this->table = nullptr;
+    this->yHeader = nullptr;
+    this->yHeaderSize = 0;
+    if (nullptr != this->x_alloc && nullptr != this->y_alloc && nullptr != this->z_alloc) {
+        for (uint16_t i = 0; i < _xHeaderSize; i++) {
+            this->x_alloc[i] = _xHeader[i];
+        }
+        for (uint16_t i = 0; i < _yHeaderSize; i++) {
+            this->y_alloc[i] = _yHeader[i];
+        }
+        for (uint16_t i = 0; i < _dataSize; i++) {
+            this->z_alloc[i] = _data[i];
+        }
+        this->table = new LookupRefTable(x_alloc, _xHeaderSize, z_alloc, _dataSize);
+        this->yHeader = new LookupRefHeader(y_alloc, _yHeaderSize);
+        this->yHeaderSize = _yHeaderSize;
+    }
+}
+
+bool LookupByteMap::is_allocated(void) const {
+    return nullptr != this->x_alloc && nullptr != this->y_alloc && nullptr != this->z_alloc;
+}
+
+bool LookupByteMap::add_data(const uint8_t* map, const uint16_t size) {
+    if (size != this->z_size) {
+        return false;
+    } else {
+        for (uint16_t i = 0; i < size; i++) {
+            this->z_alloc[i] = map[i];
+        }
+        return true;
+    }
+}
+
+LookupByteMap::~LookupByteMap() {
+    delete this->table;
+    delete this->yHeader;
+    free(this->x_alloc);
+    free(this->y_alloc);
+    free(this->z_alloc);
 }

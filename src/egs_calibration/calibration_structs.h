@@ -165,6 +165,7 @@ typedef struct {
 extern HydraulicCalibration* HYDR_PTR;
 extern MechanicalCalibration* MECH_PTR;
 extern TorqueConverterCalibration* TCC_CFG_PTR;
+extern ShiftAlgorithmPack* SHIFT_ALGO_CFG_PTR;
 
 namespace EGSCal {
     /**

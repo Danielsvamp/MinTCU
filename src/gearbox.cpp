@@ -5,7 +5,9 @@
 #include "egs_calibration/calibration_structs.h"
 #include "tcu_io/tcu_io.hpp"
 #include "nvs/module_settings.h"
-#include "shifting_algo/shifting_algo_helpers.h"
+#include "shifting_algo/s_algo.h"
+#include "shifting_algo/shift_crossover.h"
+#include "shifting_algo/shift_release.h"
 #include <stdlib.h> //manuellt hidlagt
 #include <string.h>
 #include <Arduino.h>
@@ -25,6 +27,8 @@
 #define ATF_FAILSAFE_TEMP_C 120
 // Print a log line every this many frames (5 = 10Hz)
 #define LOG_EVERY_N_FRAMES 5
+// Same as UN52 gearbox.cpp
+#define SHIFT_DELAY_MS 20     // 20ms steps
 
 Gearbox::Gearbox()
 {
@@ -63,6 +67,26 @@ Gearbox::Gearbox()
 
     this->pressure_mgr = new PressureManager(&this->sensor_data, this->gearboxConfig.max_torque);
     pressure_manager = this->pressure_mgr;
+    this->tcc = new TorqueConverter();
+    // MinTCU only has the Manual profile (+/- on the selector)
+    Profiles::init_profiles(VEHICLE_CONFIG.engine_type == 0);
+    this->current_profile = manual;
+    memset(&this->fwd, 0, sizeof(this->fwd));
+
+    // Same as UN52
+    if (VEHICLE_CONFIG.engine_type == 1)
+    {
+        this->redline_rpm = VEHICLE_CONFIG.red_line_rpm_petrol;
+    }
+    else
+    {
+        this->redline_rpm = VEHICLE_CONFIG.red_line_rpm_diesel;
+    }
+    if (this->redline_rpm < 4000)
+    {
+        this->redline_rpm = 4000; // just in case
+    }
+    this->diff_ratio_f = (float)VEHICLE_CONFIG.diff_ratio / 1000.0;
     // Start in failsafe until the engine is running and CAN is OK
     this->pressure_mgr->set_failsafe(true);
 }
@@ -95,6 +119,78 @@ int32_t calc_input_rpm_from_req_gear(const int32_t output_rpm, const GearboxGear
     return (int32_t)calculated;
 }
 
+// Same as UN52 gearbox.cpp
+GearboxGear gear_from_idx(uint8_t idx)
+{
+    // Only for drivable gears. P/R/SNV is never used
+    GearboxGear ret = GearboxGear::SignalNotAvailable;
+    if (idx >= 1 && idx <= 5) {
+        ret = (GearboxGear)(idx); // Direct cast for gears 1-5
+    }
+    else if (idx == 6) {
+        ret = GearboxGear::Reverse_First;
+    }
+    else if (idx == 7) {
+        ret = GearboxGear::Reverse_Second;
+    }
+    return ret;
+}
+
+GearboxGear next_gear(GearboxGear g)
+{
+    GearboxGear next = g;
+    uint8_t idx = (uint8_t)g;
+    if (idx >= 1 && idx < 5) { // 1-4
+        next = (GearboxGear)(idx + 1);
+    }
+    return next;
+}
+
+GearboxGear prev_gear(GearboxGear g)
+{
+    GearboxGear prev = g;
+    uint8_t idx = (uint8_t)g;
+    if (idx > 1 && idx <= 5) { // 2-5
+        prev = (GearboxGear)(idx - 1);
+    }
+    return prev;
+}
+
+float ratio_absolute(GearboxGear g, GearboxConfiguration* cfg) {
+    switch (g) {
+    case GearboxGear::First:
+        return cfg->bounds[0].ratio;
+    case GearboxGear::Second:
+        return cfg->bounds[1].ratio;
+    case GearboxGear::Third:
+        return cfg->bounds[2].ratio;
+    case GearboxGear::Fourth:
+        return cfg->bounds[3].ratio;
+    case GearboxGear::Fifth:
+        return cfg->bounds[4].ratio;
+    case GearboxGear::Reverse_First:
+        return abs(cfg->bounds[5].ratio);
+    case GearboxGear::Reverse_Second:
+        return abs(cfg->bounds[6].ratio);
+    default:
+        return 0;
+    }
+}
+
+void Gearbox::inc_gear_request()
+{
+    this->ask_upshift = true;
+    this->ask_downshift = false;
+    this->manual_shift = true;
+}
+
+void Gearbox::dec_gear_request()
+{
+    this->ask_upshift = false;
+    this->ask_downshift = true;
+    this->manual_shift = true;
+}
+
 bool is_controllable_gear(GearboxGear g)
 {
     bool controllable = true;
@@ -113,8 +209,9 @@ bool is_fwd_gear(GearboxGear g)
     return is_fwd;
 }
 
-// Nothing upshifts or downshifts yet, so D is always 2nd (UN52 last_motion_gear 'No pressure default'),
-// the same gear the 722.6 uses in limp mode.
+// Same as UN52 controller_loop. Going into D uses last_motion_gear (2nd after the engine was off, UN52's
+// 'No pressure default' and the gear the 722.6 uses in limp mode). Already in a forward gear, D keeps
+// the gear, + / - change it (process_gear_requests).
 // R is Reverse_First (UN52 would pick Reverse_Second after 2nd). Reverse_First needs more pressure
 // with this calibration, so the pressure is on the safe side whichever reverse the gearbox is in.
 GearboxGear Gearbox::requested_gear_from_shifter() {
@@ -124,7 +221,13 @@ GearboxGear Gearbox::requested_gear_from_shifter() {
         case ShifterPosition::N_D:
         case ShifterPosition::PLUS:
         case ShifterPosition::MINUS:
-            ret = this->last_motion_gear;
+            // Some shift levers can be semi broken
+            // and can switch between ND and D randomly whilst in motion
+            // handle that case here by checking current fwd gear first
+            // If current gear is also fwd, ignore!
+            if (!is_fwd_gear(this->actual_gear) && !is_fwd_gear(this->target_gear)) {
+                ret = this->last_motion_gear;
+            }
             break;
         case ShifterPosition::R:
             ret = GearboxGear::Reverse_First;
@@ -149,28 +252,115 @@ GearboxGear Gearbox::requested_gear_from_shifter() {
     return ret;
 }
 
-// Like UN52 shift_thread(), for the gears MinTCU can do (Garage shifts in and out of D/R)
+// Same as UN52 controller_loop: + / - and the profile's up/downshift checks (Manual profile: only
+// downshifts when almost stopped), the forced upshift before redline, and the RPM checks.
+// Only in a forward gear, not shifting, and with no gear ratio mismatch.
+void Gearbox::process_gear_requests() {
+    if (this->engine_running && this->speeds_valid && is_fwd_gear(this->actual_gear))
+    {
+        // In gear, not shifting, and no ratio mismatch
+        if (!this->shifting && this->actual_gear == this->target_gear && gear_disagree_count == 0)
+        {
+            AbstractProfile* p = this->current_profile;
+            // Check if profile is loaded
+            if (p != nullptr)
+            {
+                // Ask the current drive profile if it thinks, given the current
+                // data, if the car should up/downshift
+                // (No TRRS range restriction, restrict_target is always Fifth with the EWM)
+                if (p->should_upshift(this->actual_gear, &this->sensor_data))
+                {
+                    this->ask_upshift = true; // Upshift takes priority
+                    this->manual_shift = false;
+                }
+                else if (p->should_downshift(this->actual_gear, &this->sensor_data)) {
+                    this->ask_downshift = true; // Downshift is secondary
+                    this->manual_shift = false;
+                }
+            }
+            if (manual == this->current_profile &&
+                this->actual_gear != GearboxGear::Fifth && // Already checked if in FWD gear
+                !this->ask_upshift &&
+                this->engine_spd_flt > this->engine_spd_flt_prev
+            ) {
+                GearChange change = GearChange::_1_2;
+                if (this->actual_gear == GearboxGear::Second) {
+                    change = GearChange::_2_3;
+                } else if (this->actual_gear == GearboxGear::Third) {
+                    change = GearChange::_3_4;
+                } else if (this->actual_gear == GearboxGear::Fourth) {
+                    change = GearChange::_4_5;
+                }
+                int32_t cycles_to_shift = ShiftHelpers::total_time_crossover_shift(this->pressure_mgr, nullptr, change, abs(sensor_data.input_torque), sensor_data.input_rpm);
+                int32_t delta_est = ((int32_t)this->engine_spd_flt - (int32_t)this->engine_spd_flt_prev) / 10; // Per 20ms cycle
+                int32_t est_rpm_when_shifting = (this->engine_spd_flt/10) + (delta_est * cycles_to_shift);
+                if (
+                    est_rpm_when_shifting > (int32_t)this->redline_rpm - (int32_t)SBS_CURRENT_SETTINGS.redline_offset_auto_upshift &&
+                    sensor_data.pedal_pos > 50
+                ) {
+                    this->ask_upshift = true;
+                }
+            }
+            if (this->ask_upshift && this->actual_gear < GearboxGear::Fifth)
+            {
+                // Check RPMs
+                GearboxGear next = next_gear(this->actual_gear);
+                // Second gear shift defaults to OK as we can safely start in second (For C/W mode)
+                if (next == GearboxGear::Second || calc_input_rpm_from_req_gear(this->sensor_data.output_rpm, next, &this->gearboxConfig) > 900)
+                {
+                    this->target_gear = next;
+                }
+            }
+            else if ((this->ask_downshift || sensor_data.kickdown_pressed) && this->actual_gear > GearboxGear::First)
+            {
+                // Check RPMs
+                GearboxGear prev = prev_gear(this->actual_gear);
+                int32_t prev_rpm = calc_input_rpm_from_req_gear(this->sensor_data.output_rpm, prev, &this->gearboxConfig);
+                bool can_downshift = prev_rpm <= (int32_t)this->redline_rpm - 100;
+                if (can_downshift)
+                {
+                    this->target_gear = prev;
+                }
+            }
+        }
+        // Request processed. Cancel the requests. Put this outside here so that if there is a ratio mismatch, paddles are ignored
+        this->ask_downshift = false;
+        this->ask_upshift = false;
+        this->shift_req_was_manual = this->manual_shift;
+        this->manual_shift = false;
+    }
+}
+
+// Like UN52 shift_thread()
 void Gearbox::update_gear(GearboxGear requested) {
     if (this->pressure_mgr->is_failsafe()) {
-        // No garage shifts in failsafe. The shift solenoids are off and MPC/SPC are at 0mA (max pressure),
-        // so the gearbox engages whatever the selector says, like limp mode.
+        // No shifting in failsafe. The shift solenoids are off and MPC/SPC are at 0mA (max pressure).
+        // The shift valves stay where they are, so a forward gear stays engaged. Selecting P/N/R engages
+        // whatever the selector says, like limp mode.
         if (this->shifting) {
-            this->gar_result = 2;
-            this->end_garage_shift();
+            this->abort_shift();
+            requested = this->requested_gear_from_shifter();
         }
-        this->actual_gear = requested;
         this->target_gear = requested;
+        this->actual_gear = requested;
         return;
     }
     if (this->shifting) {
-        this->step_garage_shift();
+        if (this->fwd_shifting) {
+            this->step_fwd_shift();
+        } else {
+            this->step_garage_shift();
+        }
         return;
     }
-    if (requested == this->actual_gear) {
+    // Forward gear requests (+ / -) are already in target_gear
+    if (!(is_fwd_gear(requested) && is_fwd_gear(this->actual_gear))) {
         this->target_gear = requested;
+    }
+    if (this->target_gear == this->actual_gear) {
         return;
     }
-    this->target_gear = requested;
+    requested = this->target_gear;
     if (!is_controllable_gear(this->actual_gear) && !is_controllable_gear(requested)) {
         // No need to shift
         this->actual_gear = requested;
@@ -193,10 +383,273 @@ void Gearbox::update_gear(GearboxGear requested) {
     } else if (is_fwd_gear(requested) != is_fwd_gear(this->actual_gear)) {
         // Shifter got stuck in R-D. Go to neutral, then garage shift next cycle (Same as UN52)
         this->actual_gear = GearboxGear::Neutral;
+    } else if (is_fwd_gear(requested) && is_fwd_gear(this->actual_gear)) {
+        // Forward shift logic (Same as UN52, one gear at a time)
+        GearChange pgc = GearChange::_IDLE;
+        if (requested > this->actual_gear) {
+            // Upshifting
+            if (requested == GearboxGear::Second) {
+                pgc = GearChange::_1_2;
+            } else if (requested == GearboxGear::Third) {
+                pgc = GearChange::_2_3;
+            } else if (requested == GearboxGear::Fourth) {
+                pgc = GearChange::_3_4;
+            } else if (requested == GearboxGear::Fifth) {
+                pgc = GearChange::_4_5;
+            }
+            this->is_upshift = true;
+        } else {
+            // Downshifting
+            if (requested == GearboxGear::First) {
+                pgc = GearChange::_2_1;
+            } else if (requested == GearboxGear::Second) {
+                pgc = GearChange::_3_2;
+            } else if (requested == GearboxGear::Third) {
+                pgc = GearChange::_4_3;
+            } else if (requested == GearboxGear::Fourth) {
+                pgc = GearChange::_5_4;
+            }
+            this->is_upshift = false;
+        }
+        if (GearChange::_IDLE == pgc || abs((int16_t)requested - (int16_t)this->actual_gear) != 1) {
+            // WTF (More than one gear, never requested by process_gear_requests)
+            this->target_gear = this->actual_gear;
+        } else {
+            this->start_fwd_shift(pgc);
+        }
     } else {
-        // Forward gear to forward gear (Upshift/downshift), not done yet
+        // Ignoring request to change between reverse gears
         this->target_gear = this->actual_gear;
     }
+}
+
+void Gearbox::abort_shift() {
+    if (this->fwd_shifting) {
+        this->fwd_result = 3;
+        this->end_fwd_shift(false);
+    } else {
+        this->gar_result = 2;
+        this->end_garage_shift();
+    }
+}
+
+// First part of UN52 Gearbox::elapse_shift (Everything before the shift loop)
+void Gearbox::start_fwd_shift(GearChange req_lookup) {
+    // This is important for all EGS compatibility
+    uint8_t egs_map_idx_lookup = fwd_gearchange_egs_map_lookup_idx(req_lookup);
+    AbstractProfile* profile = this->current_profile;
+    if (nullptr == profile || 0xFF == egs_map_idx_lookup) {
+        this->target_gear = this->actual_gear;
+        return;
+    }
+    CircuitInfo sd = pressure_mgr->get_basic_shift_data(req_lookup);
+    sd.map_idx = egs_map_idx_lookup;
+    if (this->last_shift_circuit == sd.shift_circuit) { // Same shift solenoid
+        // UN52 waits here, MinTCU tries again next cycle (The normal MPC control keeps running)
+        if (GET_CLOCK_TIME() - sensor_data.last_shift_time < 500) {
+            return;
+        }
+    }
+    ShiftCharacteristics chars = profile->get_shift_characteristics(req_lookup, &this->sensor_data);
+    chars.target_shift_time = MAX(100, chars.target_shift_time);
+    this->last_shift_circuit = sd.shift_circuit;
+    this->shift_idx = req_lookup;
+
+    FwdShift* f = &this->fwd;
+    memset(f, 0, sizeof(FwdShift));
+    f->sd = sd;
+
+    pressure_manager->register_shift_pressure_data(&f->p_now);
+
+    f->now_cs = ClutchSpeedModel::get_shifting_clutch_speeds(this->speed_sensors, req_lookup, this->gearboxConfig.bounds);
+    Clutch applying = get_clutch_to_apply(req_lookup);
+    Clutch releasing = get_clutch_to_release(req_lookup);
+    PrefillData prefill_data = pressure_mgr->make_fill_data(applying);
+
+    int32_t MOD_MAX = this->pressure_mgr->get_max_solenoid_pressure();
+    int32_t SPC_MAX = pressure_manager->get_max_shift_pressure(egs_map_idx_lookup);
+
+    f->trd = TorqueRequstData {
+        .ty = TorqueRequestControlType::None,
+        .bounds = TorqueRequestBounds::LessThan,
+        .amount = 0
+    };
+
+    bool en_trq_req = true;
+    if (GearChange::_1_2 == req_lookup) {
+        en_trq_req = SBS_CURRENT_SETTINGS.en_trq_req_1_2;
+    } else if (GearChange::_2_3 == req_lookup) {
+        en_trq_req = SBS_CURRENT_SETTINGS.en_trq_req_2_3;
+    } else if (GearChange::_3_4 == req_lookup) {
+        en_trq_req = SBS_CURRENT_SETTINGS.en_trq_req_3_4;
+    } else if (GearChange::_4_5 == req_lookup) {
+        en_trq_req = SBS_CURRENT_SETTINGS.en_trq_req_4_5;
+    } else if (GearChange::_2_1 == req_lookup) {
+        en_trq_req = SBS_CURRENT_SETTINGS.en_trq_req_2_1;
+    } else if (GearChange::_3_2 == req_lookup) {
+        en_trq_req = SBS_CURRENT_SETTINGS.en_trq_req_3_2;
+    } else if (GearChange::_4_3 == req_lookup) {
+        en_trq_req = SBS_CURRENT_SETTINGS.en_trq_req_4_3;
+    } else if (GearChange::_5_4 == req_lookup) {
+        en_trq_req = SBS_CURRENT_SETTINGS.en_trq_req_5_4;
+    }
+    // MinTCU only listens on the CAN bus, so the engine never gets a torque request. Tell the shift
+    // algorithms, then they make up for the torque that is not taken away (UN52 does the same when
+    // torque requests are switched off in the settings)
+    en_trq_req = false;
+
+    f->sid = ShiftInterfaceData {
+        .profile = profile,
+        .MOD_MAX = MOD_MAX,
+        .SPC_MAX = SPC_MAX,
+        .shift_flags = 0,
+        .change = req_lookup,
+        .applying = applying,
+        .releasing = releasing,
+        .curr_g = this->actual_gear,
+        .targ_g = this->target_gear,
+        .inf = sd,
+        .release_spring_on_clutch = pressure_manager->get_spring_pressure(applying),
+        .release_spring_off_clutch = pressure_manager->get_spring_pressure(releasing),
+        .prefill_info = prefill_data,
+        .chars = chars,
+        .ptr_r_clutch_speeds = &f->now_cs,
+        .ptr_w_pressures = &f->p_now,
+        .ptr_w_trq_req = &f->trd,
+        .tcc = this->tcc,
+        .adaptation_mgr = nullptr, // MinTCU has no adaptation
+        .manual_shift = this->shift_req_was_manual,
+        .trq_req_en = en_trq_req,
+        .diff_ratio = this->diff_ratio_f,
+        .max_gb_trq = this->gearboxConfig.max_torque,
+        // -1 since bounds table starts at 1st gear, but gear_to_idx_lookup returns 0 as N, not D1
+        .ratio_old_gear = this->gearboxConfig.bounds[gear_to_idx_lookup(this->actual_gear)-1].ratio,
+        .n3_rpm = this->speed_sensors.n3
+    };
+    // To set the flag values initially
+    ShiftHelpers::calc_shift_flags(&f->sid, &this->sensor_data, true);
+
+    float threshold_torque = VEHICLE_CONFIG.engine_drag_torque/10.0;
+    if (is_upshift) {
+        f->release = sensor_data.converted_driver_torque <= -threshold_torque/2;
+    }
+    else {
+        bool is_release = true;
+        // UN52 uses Gearbox::manual_shift here (Cleared before the shift starts, so always false)
+        if (
+            ((sensor_data.converted_driver_torque <= threshold_torque && ((f->sid.shift_flags & SHIFT_FLAG_COAST) == 0 || (f->sid.chars.extra_speed && this->shift_req_was_manual))) ||
+                (
+                    (f->sid.shift_flags & SHIFT_FLAG_COAST_54_43) != 0
+                )
+            )
+        ) {
+            is_release = false;
+        }
+        f->release = is_release;
+    }
+    if (f->release) {
+        f->algo = new ReleasingShift(&f->sid);
+    } else {
+        f->algo = new CrossoverShift(&f->sid);
+    }
+    f->algo_phase_id = 0;
+    f->total_elapsed = 0;
+    f->phase_elapsed = 0;
+    this->shifting = true;
+    this->fwd_shifting = true;
+    this->step_fwd_shift();
+}
+
+// One loop of the UN52 elapse_shift shift loop
+void Gearbox::step_fwd_shift() {
+    FwdShift* f = &this->fwd;
+    f->sid.n3_rpm = this->speed_sensors.n3;
+    bool stationary_shift = this->is_stationary();
+    // Shifter moved mid shift!
+    if (!is_shifter_in_valid_drive_pos(this->shifter_pos)) {
+        this->fwd_result = 3;
+        this->end_fwd_shift(false);
+        return;
+    }
+
+    int32_t abs_input_torque = abs((int32_t)sensor_data.input_torque);
+    f->now_cs = ClutchSpeedModel::get_shifting_clutch_speeds(this->speed_sensors, f->sid.change, this->gearboxConfig.bounds);
+
+    // (UN52 sends the torque request here. MinTCU does not, see start_fwd_shift)
+
+    // Algorithm has control
+    uint8_t step_result = f->algo->step(
+        f->algo_phase_id,
+        abs_input_torque,
+        stationary_shift,
+        is_upshift,
+        f->phase_elapsed,
+        f->total_elapsed,
+        this->pressure_mgr,
+        &this->sensor_data
+    );
+
+    // Update pressures (update_pressures() is called by controller_loop)
+    pressure_mgr->set_target_modulating_pressure(f->p_now.mod_sol_req);
+    pressure_mgr->set_target_shift_pressure(f->p_now.shift_sol_req);
+
+    if (step_result == 0) {
+        // Continue
+        f->phase_elapsed += SHIFT_DELAY_MS;
+    }
+    else if (step_result == STEP_RES_END_SHIFT) {
+        // Shift completed OK!
+        this->fwd_result = 1;
+        this->end_fwd_shift(true);
+        return;
+    }
+    else if (step_result == STEP_RES_FAILURE) {
+        // Shift failure!
+        this->fwd_result = 2;
+        this->end_fwd_shift(false);
+        return;
+    }
+    else {
+        // Phase has completed, update our data
+        f->phase_elapsed = 0;
+        if (step_result == STEP_RES_NEXT) {
+            f->algo_phase_id += 1;
+        }
+        else {
+            f->algo_phase_id = step_result;
+        }
+    }
+    f->total_elapsed += SHIFT_DELAY_MS;
+}
+
+// End of UN52 Gearbox::elapse_shift
+void Gearbox::end_fwd_shift(bool result) {
+    FwdShift* f = &this->fwd;
+    if (result) { // Only set gear on conformation!
+        this->actual_gear = gear_from_idx(f->sd.targ_g);
+        this->last_motion_gear = this->actual_gear;
+    }
+    else {
+        if (!is_shifter_in_valid_drive_pos(this->shifter_pos)) {
+            // Shift failed due to selector moving
+            this->target_gear = GearboxGear::Neutral;
+            this->actual_gear = GearboxGear::Neutral;
+        }
+        else {
+            // Shift failed!
+            this->target_gear = this->actual_gear;
+        }
+    }
+    pressure_manager->set_spc_p_max();
+    pressure_manager->set_shift_circuit(f->sd.shift_circuit, false);
+    pressure_manager->notify_shift_end();
+    this->sensor_data.last_shift_time = GET_CLOCK_TIME();
+    delete f->algo;
+    f->algo = nullptr;
+    this->shift_idx = GearChange::_IDLE;
+    this->shifting = false;
+    this->fwd_shifting = false;
+    this->is_upshift = false;
 }
 
 void Gearbox::shift_to_n_p(GearboxGear target) {
@@ -492,7 +945,7 @@ bool Gearbox::is_stationary() {
 bool Gearbox::process_speed_sensors()
 {
     bool ok = true;
-    bool conduct_sanity_check =
+    bool conduct_sanity_check = gear_disagree_count == 0 &&
         (this->actual_gear == this->target_gear) && (                                                 // Same gear (Not shifting)
             (this->actual_gear == GearboxGear::Second) || // And in 2..
             (this->actual_gear == GearboxGear::Third) ||  // .. or 3 ..
@@ -520,12 +973,104 @@ bool Gearbox::process_speed_sensors()
 
     if (UINT16_MAX != output) {
         speed_sensors.output = output;
+        this->output_estimated = false;
+    }
+    else if (VEHICLE_CONFIG.input_sensor_pulses_per_rev == 0 && ok) {
+        // MinTCU: no output speed sensor fitted. In gear nothing slips between the input and output
+        // shaft, so output = input / gear ratio. During an up/downshift the ratio changes, so the
+        // value carries on at the rate it was changing before the shift for up to 1 second, then it is
+        // held (The shift algorithms need the output speed to see the clutches sync, holding it still
+        // breaks that if the car speeds up or slows down during the shift).
+        // In P/N it cannot be known, it is 0 (Same as before, the garage shift then expects the car to
+        // be stopped)
+        if (!this->fwd_shifting) {
+            float ratio = ratio_absolute(this->actual_gear, &this->gearboxConfig);
+            float est = 0;
+            if (ratio > 0 && is_controllable_gear(this->actual_gear)) {
+                est = (float)speed_sensors.turbine / ratio;
+                // Change per cycle, filtered (N2/N3 move in steps)
+                this->est_output_change = (this->est_output_change * 0.9f) + ((est - this->est_output) * 0.1f);
+            } else {
+                this->est_output_change = 0;
+            }
+            this->est_output = est;
+        } else if (this->fwd.total_elapsed < 1000) {
+            this->est_output = MAX(0.0f, this->est_output + this->est_output_change);
+        }
+        speed_sensors.output = this->est_output;
+        this->output_estimated = true;
     }
     else {
         ok = false; // Output RPM failed
     }
 
     return ok;
+}
+
+// Same as UN52
+bool Gearbox::calcGearFromRatio(bool is_reverse)
+{
+    float ratio = (float)this->sensor_data.input_rpm / (float)this->sensor_data.output_rpm;
+    if (is_reverse)
+    {
+        ratio *= -1;
+        for (uint8_t i = 0; i < 2; i++)
+        { // Scan the 2 reverse gears (stored in bounds[5] and bounds[6])
+            GearRatioInfo limits = gearboxConfig.bounds[i + 5];
+            if (ratio >= limits.ratio_min_drift && ratio <= limits.ratio_max_drift)
+            {
+                // est_gear_idx must match gear_from_idx(): 6 = Reverse_First, 7 = Reverse_Second
+                this->est_gear_idx = i + 6;
+                return true;
+            }
+        }
+    }
+    else
+    {
+        for (uint8_t i = 0; i < 5; i++)
+        { // Scan the 5 forwards gears
+            GearRatioInfo limits = gearboxConfig.bounds[i];
+            if (ratio >= limits.ratio_min_drift && ratio <= limits.ratio_max_drift)
+            {
+                this->est_gear_idx = i + 1;
+                return true;
+            }
+        }
+    }
+    this->est_gear_idx = 0;
+    return false;
+}
+
+// Same as UN52, in int32_t
+void Gearbox::process_acceleration() {
+    if (UINT16_MAX != sensor_data.output_rpm) {
+        int32_t wheel_spd_now = (((float)sensor_data.output_rpm*100) / this->diff_ratio_f);
+        // Rpm -> Rps = RPM/60
+        // Rps -> Rp/cycle = Rps/50
+        int32_t wheel_delta = ((int32_t)this->wheel_spd-(int32_t)this->wheel_spd_prev);
+        int32_t wheel_accel_m = (wheel_delta * (int32_t)VEHICLE_CONFIG.wheel_circumference)/300; // mm/sec delta
+        // Rotate values
+        this->wheel_spd_prev = this->wheel_spd;
+        this->wheel_spd = wheel_spd_now;
+        if (sensor_data.output_rpm < 20) {
+            wheel_accel_m = 0;
+            acceleration_ms2 = 0;
+        } else {
+            acceleration_ms2 = first_order_filter(10, wheel_accel_m*100, this->acceleration_ms2);
+        }
+    } else {
+        wheel_spd = 0;
+        wheel_spd_prev = 0;
+        acceleration_ms2 = 0;
+    }
+}
+
+// Same as UN52, in int32_t
+void Gearbox::process_motor_spd_filtered() {
+    if (UINT16_MAX != sensor_data.engine_rpm) {
+        this->engine_spd_flt_prev = this->engine_spd_flt;
+        this->engine_spd_flt = first_order_filter(8, (int32_t)sensor_data.engine_rpm*10, engine_spd_flt);
+    }
 }
 
 void Gearbox::controller_loop() {
@@ -537,25 +1082,75 @@ void Gearbox::controller_loop() {
 
     TCUIO::update_io_layer();
 
-    // Speed sensors. UN52 only copies input and output RPM when both are OK.
-    // MinTCU can run without the output sensor, so the input RPM is used on its own
-    bool speeds_valid = this->process_speed_sensors();
+    // Speed sensors (Same as UN52). MinTCU also copies the input RPM when the output RPM is missing,
+    // the garage shift only needs the input RPM
+    this->speeds_valid = this->process_speed_sensors();
     this->sensor_data.input_rpm = this->speed_sensors.turbine;
-    if (TCUIO::output_rpm() != UINT16_MAX) {
-        this->sensor_data.output_rpm = this->speed_sensors.output;
-    } else {
-        this->sensor_data.output_rpm = 0;
-    }
-    if (speeds_valid && !this->is_stationary()) {
-        // Store our ratio (Same as UN52)
-        if (this->actual_gear == GearboxGear::Neutral || this->actual_gear == GearboxGear::Park || this->actual_gear == GearboxGear::SignalNotAvailable) {
-            this->sensor_data.gear_ratio = 0.0;
-        } else {
-            this->sensor_data.gear_ratio = (float)this->sensor_data.input_rpm / (float)this->sensor_data.output_rpm;
+    if (this->speeds_valid)
+    {
+        this->sensor_data.output_rpm = speed_sensors.output;
+        bool stationary = this->is_stationary();
+        this->process_acceleration();
+        this->sensor_data.acceleration_ms2 = this->acceleration_ms2/10;
+        this->sensor_data.wheel_speed_mps = this->wheel_spd;
+        if (!stationary)
+        {
+            // Store our ratio
+            if (this->actual_gear == GearboxGear::Neutral || this->actual_gear == GearboxGear::Park || this->actual_gear == GearboxGear::SignalNotAvailable) {
+                this->sensor_data.gear_ratio = 0.0;
+            } else {
+                this->sensor_data.gear_ratio = (float)this->sensor_data.input_rpm / (float)this->sensor_data.output_rpm;
+            }
+            this->sensor_data.targ_gear_ratio = ratio_absolute(this->actual_gear, &this->gearboxConfig);
         }
-    } else {
-        // Stationary so no ratios
+        else {
+            // Stationary so no ratios
+            this->sensor_data.gear_ratio = 0.0;
+            this->sensor_data.targ_gear_ratio = 0.0;
+        }
+        // Gear check from the ratio. Not possible with the estimated output RPM, it always matches the gear
+        if (!shifting && sensor_data.output_rpm > 100 && !this->output_estimated)
+        {
+            if (is_fwd_gear(this->actual_gear))
+            {
+                if (calcGearFromRatio(false) && this->est_gear_idx != 0)
+                {
+                    // Compare gears
+                    GearboxGear estimate = gear_from_idx(this->est_gear_idx);
+                    if (estimate != this->actual_gear)
+                    {
+                        gear_disagree_count++;
+                        if (gear_disagree_count >= 50)
+                        {
+                            this->actual_gear = estimate; // DID NOT SHIFT!
+                            this->target_gear = estimate;
+                            this->last_motion_gear = estimate;
+                            gear_disagree_count = 0;
+                        }
+                    }
+                    else
+                    {
+                        gear_disagree_count = 0;
+                    }
+                }
+            }
+            else
+            {
+                gear_disagree_count = 0;
+            }
+        }
+        else
+        {
+            gear_disagree_count = 0;
+        }
+    }
+    else
+    {
+        if (!this->output_estimated && TCUIO::output_rpm() == UINT16_MAX) {
+            this->sensor_data.output_rpm = 0;
+        }
         this->sensor_data.gear_ratio = 0.0;
+        gear_disagree_count = 0;
     }
 
     // Pedal (Same as UN52)
@@ -564,6 +1159,8 @@ void Gearbox::controller_loop() {
     {
         p_tmp = 250 / 4; // 25% as a fallback
     }
+    int16_t pedal_delta = ((int16_t)p_tmp - (int16_t)this->pedal_last)*50; // Per second
+    this->sensor_data.pedal_delta_per_second = first_order_filter(3, (float)pedal_delta/2.5, this->sensor_data.pedal_delta_per_second);
     this->pedal_last = p_tmp;
     this->sensor_data.pedal_pos = p_tmp;
 
@@ -588,12 +1185,22 @@ void Gearbox::controller_loop() {
         this->engine_running = true;
         this->engine_running_off_counter = 0;
     } else if (this->engine_running) {
-        // UN52 uses the input shaft speed for this, we don't read N2/N3 yet
+        // UN52 uses input RPM == 0 for this (2.5 seconds). The converter drags the turbine at a
+        // standstill in gear, so MinTCU uses the engine RPM
         this->engine_running_off_counter += 1;
         if (this->engine_running_off_counter >= 50) { // 1 second
             this->engine_running = false;
+            // Same as UN52 when the engine stops
+            if (this->shifting) {
+                this->abort_shift();
+            }
+            this->last_motion_gear = GearboxGear::Second; // No pressure default
+            this->actual_gear = GearboxGear::Neutral;
+            this->target_gear = GearboxGear::Neutral;
         }
     }
+
+    this->process_motor_spd_filtered();
 
     // ATF temperature
     int16_t tmp_atf = TCUIO::atf_temperature();
@@ -608,6 +1215,22 @@ void Gearbox::controller_loop() {
 
     // Shifter
     this->shifter_pos = egs_can_hal->get_shifter_position(SHIFTER_EXPIRE_MS);
+    if (this->shifter_pos != this->shifter_pos_last)
+    {
+        // Same as UN52 main.cpp: Same position is ignored, process last request of the user
+        switch (this->shifter_pos)
+        {
+        case ShifterPosition::PLUS:
+            this->inc_gear_request();
+            break;
+        case ShifterPosition::MINUS:
+            this->dec_gear_request();
+            break;
+        default:
+            break;
+        }
+        this->shifter_pos_last = this->shifter_pos;
+    }
     GearboxGear requested = this->requested_gear_from_shifter();
 
     // Torques (Same as UN52)
@@ -653,10 +1276,21 @@ void Gearbox::controller_loop() {
     this->failsafe_reasons = reasons;
     this->pressure_mgr->set_failsafe(FS_NONE != reasons);
 
-    // Gear / garage shift
+    // + / - and gear changes
+    if (this->pressure_mgr->is_failsafe()) {
+        // Not in UN52: a + / - from before or during failsafe must not shift later
+        this->ask_upshift = false;
+        this->ask_downshift = false;
+        this->manual_shift = false;
+    } else {
+        this->process_gear_requests();
+    }
     this->update_gear(requested);
 
-    if (this->shifting) {
+    if (this->fwd_shifting) {
+        // The shift algorithm sets MPC and SPC (Same as UN52 elapse_shift)
+        pressure_mgr->update_pressures(this->fwd.sid.curr_g, this->fwd.sid.change);
+    } else if (this->shifting) {
         // The garage shift sets MPC and SPC itself (Same as UN52, it uses the target gear)
         pressure_mgr->update_pressures(this->gar.target, this->gar.circuit);
     } else {
@@ -691,7 +1325,12 @@ void Gearbox::print_log() {
     Serial.print(',');
     Serial.print(this->sensor_data.input_rpm);
     Serial.print(',');
-    Serial.print(TCUIO::output_rpm() != UINT16_MAX ? (int32_t)this->sensor_data.output_rpm : (int32_t)-1);
+    if (TCUIO::output_rpm() != UINT16_MAX || this->output_estimated) {
+        Serial.print(this->sensor_data.output_rpm);
+        Serial.print(this->output_estimated ? "e" : ""); // e = estimated (No output speed sensor)
+    } else {
+        Serial.print(-1);
+    }
     Serial.print(',');
     Serial.print(this->sensor_data.gear_ratio, 2);
     Serial.print(',');
@@ -726,13 +1365,23 @@ void Gearbox::print_log() {
     Serial.print(',');
     Serial.print(this->pressure_mgr->get_active_shift_circuits(), HEX);
     Serial.print(',');
-    if (this->shifting) {
+    if (this->shifting && !this->fwd_shifting) {
         Serial.print('S');
         Serial.print(this->gar.stage);
         Serial.print('.');
         Serial.print(this->gar.substage);
     } else {
         Serial.print(this->gar_result);
+    }
+    Serial.print(',');
+    if (this->fwd_shifting) {
+        // C = crossover, R = release, then the gear change (1 = 1-2 ... 4 = 4-5, 5 = 2-1 ... 8 = 5-4) and the phase
+        Serial.print(this->fwd.release ? 'R' : 'C');
+        Serial.print((uint8_t)this->fwd.sid.change);
+        Serial.print('.');
+        Serial.print(this->fwd.algo_phase_id);
+    } else {
+        Serial.print(this->fwd_result);
     }
     Serial.print(',');
     Serial.print(this->failsafe_reasons, HEX);

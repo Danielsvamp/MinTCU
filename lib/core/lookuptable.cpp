@@ -1,5 +1,6 @@
 #include <lookuptable.h>
 #include <string.h>
+#include <stdlib.h>
 #include "tcu_maths_impl.h"
 
 // Lookup table base implementations
@@ -60,6 +61,31 @@ LookupAllocTable::LookupAllocTable(const int16_t *_xHeader, uint16_t _xHeaderSiz
     allocation_successful = false;
     xHeaderSize = _xHeaderSize;
     xHeader = new LookupAllocHeader(_xHeader, _xHeaderSize);
+}
+
+// Same as UN52 (TCU_HEAP_ALLOC / TCU_FREE are malloc / free here)
+LookupAllocTable::LookupAllocTable(const int16_t *_xHeader, const uint16_t _xHeaderSize, const int16_t *_data, const uint16_t _dataSize)
+:LookupTable()
+{
+    dataSize = _dataSize;
+    xHeaderSize = _xHeaderSize;
+    data = static_cast<int16_t*>(malloc(dataSize * sizeof(int16_t)));
+    allocation_successful = (nullptr != data);
+    if (allocation_successful)
+    {
+        (void)memcpy(data, _data, dataSize*sizeof(int16_t));
+    }
+    this->xHeader = new LookupAllocHeader(_xHeader, _xHeaderSize);
+}
+
+LookupAllocTable::~LookupAllocTable()
+{
+    free(data);
+}
+
+bool LookupAllocTable::is_allocated(void) const
+{
+    return allocation_successful;
 }
 
 bool LookupAllocTable::add_data(const int16_t* map, const uint16_t size) {
