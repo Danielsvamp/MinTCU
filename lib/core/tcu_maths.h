@@ -107,10 +107,6 @@ typedef struct {
 } __attribute__ ((packed)) LinearInterpSetting;
 
 
-float scale_number(float raw, float new_min, float new_max, float raw_min, float raw_max);
-float scale_number(float raw, const LinearInterpSetting* settings);
-// Faster version of [scale_number], mainly used for ISRs where float cannot be used
-int scale_number_int(int raw, int new_min, int new_max, int raw_min, int raw_max);
 float interpolate_float(float raw, float new_min, float new_max, float raw_min, float raw_max, InterpType interp_type);
 
 /**
@@ -143,7 +139,7 @@ float interpolate(const float f_1, const float f_2, const int16_t x_1, const int
 int linear_ramp_with_timer(int start, int end, int current_timer_val);
 short linear_interp_with_percentage(uint16_t percentage, short new_value, short last_filtered_val);
 
-inline int32_t first_order_filter(uint8_t sample_count, int32_t new_val, int32_t last_val);
-inline float first_order_filter_f(uint8_t sample_count, int32_t new_val, float last_val);
+int32_t first_order_filter(uint8_t sample_count, int32_t new_val, int32_t last_val);
+float first_order_filter_f(uint8_t sample_count, int32_t new_val, float last_val);
 
 #endif // TCU_MATHS_H

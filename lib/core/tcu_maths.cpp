@@ -68,9 +68,6 @@ int interpolate_int(int raw, int new_min, int new_max, int raw_min, int raw_max)
     return (((new_max - new_min) * (raw_limited - raw_min)) / (raw_max - raw_min)) + new_min;
 }
 
-float scale_number(float raw, const LinearInterpSetting* settings) {
-    return scale_number(raw, settings->new_min, settings->new_max, settings->raw_min, settings->raw_max);
-}
 
 float interpolate_float(float raw, const LinearInterpSetting* settings, InterpType interp_type) {
     return interpolate_float(raw, settings->new_min, settings->new_max, settings->raw_min, settings->raw_max, interp_type);
@@ -114,7 +111,7 @@ int32_t first_order_filter(uint8_t sample_count, int32_t new_val, int32_t last_v
     if (sample_count == 0xFF) {
         sample_count = 0xFE;
     }
-    return (new_val + (sample_count*last_val)) / (sample_count + 1);
+    return (new_val + (sample_count*last_val)) / (int32_t)(sample_count + 1);
 }
 
 short linear_interp_with_percentage(uint16_t percentage, short new_value, short last_filtered_val) {

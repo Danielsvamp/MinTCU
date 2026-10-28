@@ -6,54 +6,58 @@
     Now I'm actually gonna try to get a decent start
     I need MPC to work from calibration and sensors
     Everything must be borrowed from UN52 as far as possible, because that works
+
+    What runs now:
+    - CAN (MCP2515, listen only): engine torque, RPM, pedal, coolant temp, shifter position
+    - MPC pressure from torque, same calculation as UN52, open loop current -> PWM
+    - SPC at 0mA (max), Y3/Y4/Y5/TCC off, so the gearbox stays in 2nd (D) or R like limp mode
+    - Failsafe: no torque / no shifter / engine off / bad battery voltage = 0mA = max pressure
 */
 
 #include <Arduino.h>
 #include <stdint.h>
+#include <avr/wdt.h>
+#include "board_config.h"
 #include "gearbox.h"
+#include "canbus/can_egs52.h"
+#include "tcu_io/tcu_io.hpp"
 
-#include "shifter/shifter.h"
-#include "shifter/shifter_ewm.h"
-
-
-#include <AVR_PWM.h>
-#undef B1
-
-/*
-    My arduino pinout saved here so I don't forget what's what
-
-// SHIFT PINS
-const int shift23 = 22;
-const int shift34 = 23;
-const int shift12_45 = 24;
-
-// PWM PINS
-const int mpc = 11;
-const int spc = 12;
-const int tcc = 13;
-*/
-
-// v Arduino testing v
-
-uint8_t MPC_PWM_PIN = 11;
-float MPC_PWM_FREQ = 1000.0f;
-float TARGET_DUTY  = 50.0f;
-
-AVR_PWM* mpc_pwm = nullptr;
-
+// After a watchdog reset the watchdog stays enabled with the shortest timeout. Turn it off as early
+// as possible, otherwise the Mega can reset over and over (Some old Mega bootloaders don't do this).
+uint8_t mcusr_mirror __attribute__ ((section (".noinit")));
+void get_mcusr(void) __attribute__((naked)) __attribute__((used)) __attribute__((section(".init3")));
+void get_mcusr(void) {
+    mcusr_mirror = MCUSR;
+    MCUSR = 0;
+    wdt_disable();
+}
 
 void setup() {
-    shifter = new ShifterEwm(&VEHICLE_CONFIG, &ETS_CURRENT_SETTINGS);
-    gearbox = new Gearbox(shifter);
+    initPins(); // All solenoids off first
+    Serial.begin(115200);
+    Serial.print(F("MinTCU boot, reset cause 0x"));
+    Serial.println(mcusr_mirror, HEX);
+
+    Solenoids::init_all_solenoids();
+
+    Egs52Can* can = new Egs52Can(toRaw(Pin::can_cs), toRaw(Pin::can_int));
+    egs_can_hal = can;
+    if (!can->begin()) {
+        // Keep going, every getter returns 'not available', so the gearbox stays in failsafe (0mA)
+        Serial.println(F("CAN init FAILED (Check wiring, CS pin and CAN_CRYSTAL)"));
+    }
+
+    TCUIO::setup_io_layer();
+    gearbox = new Gearbox();
+
+    Serial.println(F("ms,rpm,pedal,trq_sta,trq_drv,trq_in,shifter,gear,atf,vbatt,mpc_targ,mpc_corr,mpc_ma,mpc_ma_est,duty_permille,failsafe,can_ovf"));
+    // If the loop ever hangs for 250ms, the Mega resets. Pins go high-Z in reset,
+    // the gate pull-downs turn the solenoids off = max pressure
+    wdt_enable(WDTO_250MS);
 }
 
 void loop() {
-    if (gearbox != nullptr) {
-         gearbox->controller_loop();
-    }
+    wdt_reset();
+    egs_can_hal->update();
+    gearbox->controller_loop();
 }
-
-
-
-
-

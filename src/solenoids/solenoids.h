@@ -2,46 +2,21 @@
 #define SOLENOID_H
 
 #include <stdint.h>
-#include "pwm_solenoid.h"
-//#include "inrush_solenoid.h"
-//#include "on_off_solenoid.h"
 #include "cc_solenoid.h"
 
-#define I2S_LOOP_INTERVAL_CC_ONLY 10
-#define I2S_LOOP_INVERVAL_ALL 20
+// Timer1 fast PWM, TOP = ICR1. 16MHz / (1 * (15999 + 1)) = 1kHz, same frequency as UN52
+#define SOLENOID_PWM_TOP 15999u
 
 namespace Solenoids {
     /**
-     * @brief Tries to initialize all the solenoids on the transmission (MPC,SPC,TCC,Y3,Y4,Y5)
-     * 
-     * @return true All solenoids initialized OK
-     * @return false A solenoid failed to initialize
+     * @brief Sets up Timer1 for 1kHz PWM on pins 11 (MPC) and 12 (SPC), both at 0% duty
+     *
+     * Y3, Y4, Y5 and TCC stay off (initPins), so the gearbox stays in its limp gear (2nd / R).
      */
     void init_all_solenoids(void);
-    uint16_t get_solenoid_voltage(void);
-
-    void boot_solenoid_test(void*);
-
-    bool init_routine_completed(void);
-
-    void notify_diag_test_start(void);
-    void notify_diag_test_end(void);
-
-    // bool startup_test_ok();
 }
 
-//extern OnOffSolenoid *sol_y3;
-//extern OnOffSolenoid *sol_y4;
-//extern OnOffSolenoid *sol_y5;
-
 extern ConstantCurrentSolenoid *sol_mpc;
-//extern ConstantCurrentSolenoid *sol_spc;
-//extern InrushControlSolenoid *sol_tcc;
-
-extern float resistance_spc;
-extern float resistance_mpc;
-
-extern bool temp_cal;
-extern int16_t temp_at_test;
+extern ConstantCurrentSolenoid *sol_spc;
 
 #endif // SOLENOID_H

@@ -2,24 +2,33 @@
 #include <stdlib.h> //måst va jär fö ja veit int naa vannifrån abs() kombe från i un52
 #include <tcu_maths.h>
 #include "solenoids/solenoids.h"
-//#include "maps.h"
 #include "common_structs_ops.h"
-//#include "nvs/module_settings.h"
-//#include "nvs/device_mode.h"
-//#include "nvs/all_keys.h"
+#include "nvs/module_settings.h"
 #include "egs_calibration/calibration_structs.h"
 
-PressureManager::PressureManager(SensorData* sensor_ptr, uint16_t max_torque) {
+/*
+    Ported from UN52 pressure_manager.cpp (MPC hold pressure only, no shifting yet).
 
-    this->target_modulating_pressure = this->get_max_solenoid_pressure();
+    NOTE: int is 16 bit on the Mega2560 (32 bit on the ESP32 UN52 runs on), so every
+    calculation that can go above 32767 is done in int32_t here.
+*/
+
+PressureManager* pressure_manager = nullptr;
+
+PressureManager::PressureManager(SensorData* sensor_ptr, uint16_t max_torque) {
+    this->sensor_data = sensor_ptr;
+    this->gb_max_torque = max_torque;
 
     this->pressure_pwm_map = new LookupRefMap((int16_t*)HYDR_PTR->pcs_map_x, 7, (int16_t*)HYDR_PTR->pcs_map_y, 4, (int16_t*)HYDR_PTR->pcs_map_z, 7*4);
-};
+
+    // Init MPC and SPC req pressures
+    this->target_shift_pressure = this->get_max_solenoid_pressure();
+    this->target_modulating_pressure = this->get_max_solenoid_pressure();
+}
 
 uint16_t PressureManager::calc_current_linear_sol(uint16_t p_targ, GearboxGear current_gear, GearChange change_state) {
-
-    int factor;
-    uint16_t extra_p = 0;
+    int32_t factor;
+    int32_t extra_p = 0;
     if (GearChange::_IDLE == change_state) { // Not shifting
         // Not shifting
         if (GearboxGear::First == current_gear || GearboxGear::Reverse_First == current_gear) {
@@ -40,14 +49,19 @@ uint16_t PressureManager::calc_current_linear_sol(uint16_t p_targ, GearboxGear c
         extra_p = interpolate_float(sensor_data->engine_rpm, 0, extra_p_interp_max, HYDR_PTR->extra_pressure_pump_speed_min, HYDR_PTR->extra_pressure_pump_speed_max, InterpType::Linear);
     }
 
-    int line_pressure = ((int)HYDR_PTR->lp_reg_spring_pressure + (int)this->target_modulating_pressure)*1000;
-    int wp = extra_p + (line_pressure / factor);
+    int32_t line_pressure = ((int32_t)HYDR_PTR->lp_reg_spring_pressure + (int32_t)this->target_modulating_pressure)*1000L;
+    int32_t wp;
+    if (factor > 0) {
+        wp = extra_p + (line_pressure / factor);
+    } else {
+        wp = extra_p;
+    }
     if (wp <= 0) {
         wp = 0;
     }
-    this->calculated_working_pressure = wp;
+    this->calculated_working_pressure = MIN(wp, (int32_t)UINT16_MAX);
 
-    int interpolated = interpolate_float(
+    int32_t interpolated = interpolate_float(
         wp,
         HYDR_PTR->inlet_pressure_output_min,
         HYDR_PTR->inlet_pressure_output_max,
@@ -57,28 +71,55 @@ uint16_t PressureManager::calc_current_linear_sol(uint16_t p_targ, GearboxGear c
     );
     this->calculated_inlet_pressure = interpolated;
 
-    int inlet_factor = HYDR_PTR->shift_pressure_addr_percent * (HYDR_PTR->inlet_pressure_output_max - interpolated);
+    int32_t inlet_factor = (int32_t)HYDR_PTR->shift_pressure_addr_percent * ((int32_t)HYDR_PTR->inlet_pressure_output_max - interpolated);
     inlet_factor /= 1000;
     uint16_t output_p = get_max_solenoid_pressure();
     if (p_targ < interpolated) {
         float with_inlet = p_targ + HYDR_PTR->inlet_pressure_offset;
         inlet_factor *= with_inlet;
         inlet_factor /= 1000;
-        output_p = p_targ + inlet_factor;
+        output_p = MIN((int32_t)p_targ + inlet_factor, (int32_t)UINT16_MAX);
     }
     return output_p;
 }
 
 void PressureManager::update_pressures(GearboxGear current_gear, GearChange change_state) {
+    if (this->failsafe) {
+        // 0mA = maximum pressure on the 722.6, same as an unpowered TCU
+        this->corrected_spc_pressure = get_max_solenoid_pressure();
+        this->corrected_mpc_pressure = get_max_solenoid_pressure();
+        sol_spc->set_current_target(0);
+        sol_mpc->set_current_target(0);
+        return;
+    }
+    // -- Set solenoid currents --
+    if (this->shift_sol_en) {
+        this->corrected_spc_pressure = this->calc_current_linear_sol(this->target_shift_pressure, current_gear, change_state);
+        sol_spc->set_current_target(this->pressure_pwm_map->get_value(this->corrected_spc_pressure, sensor_data->atf_temp+50.0, 0));
+    } else {
+        this->corrected_spc_pressure = get_max_solenoid_pressure();
+        sol_spc->set_current_target(0);
+    }
     this->corrected_mpc_pressure = this->calc_current_linear_sol(this->target_modulating_pressure, current_gear, change_state);
-    sol_mpc->set_current_target(this->pressure_pwm_map->get_value(this->corrected_mpc_pressure, sensor_data->atf_temp+50.0));
+    sol_mpc->set_current_target(this->pressure_pwm_map->get_value(this->corrected_mpc_pressure, sensor_data->atf_temp+50.0, 1));
 }
 
-uint16_t PressureManager::p_clutch_with_coef(GearboxGear gear, Clutch clutch, uint16_t torque, CoefficientTy coefType) {
-    uint8_t gearId = gear_to_idx_lookup(gear);
-    
-    uint8_t coef;
-    switch (coefType) {
+void PressureManager::set_failsafe(bool active) {
+    this->failsafe = active;
+    if (active) {
+        // Next time we leave failsafe, start from max pressure and filter down (find_working_mpc_pressure)
+        this->target_modulating_pressure = get_max_solenoid_pressure();
+    }
+}
+
+bool PressureManager::is_failsafe() const {
+    return this->failsafe;
+}
+
+uint16_t PressureManager::p_clutch_with_coef(GearboxGear gear, Clutch clutch, uint16_t abs_torque_nm, CoefficientTy coef_ty) {
+    uint8_t gear_idx = gear_to_idx_lookup(gear);
+    float coef;
+    switch (coef_ty) {
         case CoefficientTy::Static:
             coef = this->stationary_coefficient();
             break;
@@ -89,22 +130,39 @@ uint16_t PressureManager::p_clutch_with_coef(GearboxGear gear, Clutch clutch, ui
             coef = this->release_coefficient();
             break;
         default:
-            coef = 100;
+            coef = 100.F;
+    }
+    if (coef <= 0.F) {
+        coef = 100.F; // Guard a zeroed PRM setting (coefficients are stored x100)
+    }
+    float friction_val = MECH_PTR->friction_map[(gear_idx*6)+(uint8_t)clutch];
+    if (gear == GearboxGear::Reverse_Second && clutch == Clutch::B3) {
+        // Special logic
+        friction_val *= MECH_PTR->friction_map[(2*6)+4];
+        friction_val /= MECH_PTR->friction_map[(1*6)+4];
     }
 
-    uint16_t friction = MECH_PTR->friction_map[(gearId * 6) + (uint8_t)clutch];
-    uint32_t calc = ((uint32_t)torque * (uint32_t)friction) / coef;
-    return (uint16_t)calc;
+    float calc = ((float)abs_torque_nm * friction_val) / coef;
+    return MIN(calc, (float)UINT16_MAX);
 }
 
-uint8_t PressureManager::sliding_coefficient() const {
-    return 140;
+float PressureManager::sliding_coefficient() const {
+    return interpolate_float(
+        sensor_data->atf_temp,
+        PRM_CURRENT_SETTINGS.applying_coefficient_cold,
+        PRM_CURRENT_SETTINGS.applying_coefficient_hot,
+        29,
+        65,
+        InterpType::Linear
+    );
 }
-uint8_t PressureManager::release_coefficient() const {
-    return 120;
+
+float PressureManager::release_coefficient() const {
+    return (float)PRM_CURRENT_SETTINGS.releasing_coefficient;
 }
-uint8_t PressureManager::stationary_coefficient() const {
-    return 100;
+
+float PressureManager::stationary_coefficient() const {
+    return (float)PRM_CURRENT_SETTINGS.stationary_coefficient;
 }
 
 uint16_t PressureManager::find_working_mpc_pressure(GearboxGear curr_g, bool flush_logic) {
@@ -113,35 +171,38 @@ uint16_t PressureManager::find_working_mpc_pressure(GearboxGear curr_g, bool flu
             this->mpc_flush_timer -= 1;
         }
     }
-    uint8_t gearId = gear_to_idx_lookup(curr_g);
+    uint8_t gear_idx = gear_to_idx_lookup(curr_g);
     uint16_t output = 0;
-    uint8_t clutchId = MECH_PTR->strongestClutchKL[gearId];
-    if (gearId == 0 || clutchId >= 6) { // N/P
+    // MinTCU uses its own strongestClutchKL / releaseSpringPressureKL tables here,
+    // UN52 uses strongest_loaded_clutch_idx / release_spring_pressure
+    uint8_t clutch_idx = MECH_PTR->strongestClutchKL[gear_idx];
+    if (gear_idx == 0 || clutch_idx >= 6) {
+        // N,P,SNV
         output = 0;
     } else {
-        float ret = p_clutch_with_coef(curr_g, (Clutch)clutchId, abs(sensor_data->input_torque), CoefficientTy::Static);
-        ret += (MECH_PTR->releaseSpringPressureKL[clutchId] + HYDR_PTR->extra_p_not_shifting);
+        float ret = p_clutch_with_coef(curr_g, (Clutch)clutch_idx, abs(sensor_data->input_torque), CoefficientTy::Static);
+        ret += (MECH_PTR->releaseSpringPressureKL[clutch_idx] + HYDR_PTR->extra_p_not_shifting);
         if (curr_g == GearboxGear::First || curr_g == GearboxGear::Reverse_First) {
             ret *= (HYDR_PTR->p_multi_1 / 1000.0);
         } else {
-          ret *= (HYDR_PTR->p_multi_other / 1000.0);
+            ret *= (HYDR_PTR->p_multi_other / 1000.0);
         }
-
         if (ret < HYDR_PTR->lp_reg_spring_pressure) {
             ret = 0;
         } else {
-            ret -= (HYDR_PTR->lp_reg_spring_pressure);
+            ret -= HYDR_PTR->lp_reg_spring_pressure;
         }
-        output = ret;
+        output = MIN(ret, (float)UINT16_MAX);
     }
     // Clamping pressures
     if (output > get_max_solenoid_pressure()) {
         output = get_max_solenoid_pressure();
     }
-    /*
-        MPC pressure surge reduction - Reduces the slow buildup of pressure when we are working below min MPC pressure
-    */
-    if  (flush_logic &&
+    // MPC pressure surge reduction
+    // - Reduces the slow buildup of pressure when we are working
+    //   below min MPC pressure
+    if (
+        flush_logic &&
         (this->target_modulating_pressure < HYDR_PTR->min_mpc_pressure) && // Last call was below min
         (0 == output) && // Current call is 0 pressure
         ((sensor_data->atf_temp+50) >= HYDR_PTR->mpc_flush_temp_threshold) && // +50 to convert between our temperature and EGS Cal

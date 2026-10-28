@@ -8,6 +8,11 @@
 typedef int16_t pressure_map[11];
 typedef float rpm_modifier_map[9];
 
+// Arduino's binary.h has '#define B1 1', which breaks Clutch::B1
+#ifdef B1
+#undef B1
+#endif
+
 enum class Clutch {
     K1 = 0,
     K2 = 1,

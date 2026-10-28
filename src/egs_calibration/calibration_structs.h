@@ -87,7 +87,7 @@ typedef struct {
     uint16_t extra_pressure_pump_speed_max = 4000;
     uint16_t extra_pressure_adder_r1_1 = 1500;
     uint16_t extra_pressure_adder_other_gears = 1000;
-    uint16_t shift_pressure_addr_percent = 37;
+    uint16_t shift_pressure_factor_percent = 37; // Was a 2nd shift_pressure_addr_percent, UN52 calls this one shift_pressure_factor_percent
 
     // Pressure solenoid current map
     uint16_t pcs_map_x[7] = { // X axis of pcsKF. Pressure in mbar
@@ -173,73 +173,20 @@ typedef struct {
 } __attribute__ ((packed)) MechanicalCalibration;
 
 typedef struct {
-    uint16_t multiplier_map_x[2];
-    uint16_t multiplier_map_z[2];
+    // !! PLACEHOLDER VALUES, copy these from your EGS calibration !!
+    // X: turbine/engine speed ratio (x1000), Z: torque multiplication (x100)
+    // Until N2/N3 are read, input RPM is 0, so the stall value (z[0]) is always used.
+    // Higher = more pressure, so keep this on the high side.
+    uint16_t multiplier_map_x[2] = {0, 900};
+    uint16_t multiplier_map_z[2] = {210, 100};
     uint16_t pump_map_x[11];
     uint16_t pump_map_z[11];
 } __attribute__ ((packed)) TorqueConverterCalibration;
 
-typedef struct {
-    uint8_t unk;
-    uint8_t _padding;
-    uint16_t min_trq_filling_phase;
-    uint16_t min_trq_filling_ramp[8];
-    uint16_t unk1;
-    uint16_t unk2;
-    uint16_t release_filling_p[5];
-    uint8_t cycles_ramp_to_low_filling;
-    uint8_t cycles_low_filling_p[5];
-    uint8_t max_trq_ramp_filling;
-    uint8_t cycles_fill_ramp1;
-    uint8_t cycles_fill_ramp2;
-    uint8_t _padding1;
-    uint16_t fill_hold1_p;
-    uint16_t fill_hold2_p;
-    uint8_t extra_p_filling_doubleshift[3];
-    uint8_t unk_temp1;
-    uint8_t unk_temp2;
-    uint8_t filling_trq_lim_c;
-    int16_t tolorance_trq_filling;
-    uint16_t tolorance_filling_43;
-    uint16_t tolorance_filling_32_21;
-    uint16_t high_filling_p[5];
-    uint16_t max_trq_change_filling;
-    uint8_t something_trq_ramp_mclaren;
-    uint8_t something_filling_time_mclaren[5];
-    uint8_t temp_very_cold_filling;
-    uint8_t _padding3;
-    uint16_t very_cold_filling_p[5];
-    uint16_t rpm_thresh_skip_filling1;
-    uint16_t unk_p1;
-    uint8_t min_temp_adapt_43;
-    uint8_t padding3;
-    uint16_t trq_threshold_reduction_filling_p;
-    uint16_t max_reduction_filling_p[6];
-    uint8_t downshift_pedal_jump_abort[5];
-} __attribute__ ((packed)) FillingCalibration;
 
-typedef struct {
-    uint32_t magic;
-    uint16_t len;
-    uint16_t crc;
-    char tcc_cal_name[16];
-    TorqueConverterCalibration tcc_cal;
-    char mech_cal_name[16];
-    MechanicalCalibration mech_cal;
-    char hydr_cal_name[16];
-    HydraulicCalibration hydr_cal;
-    char shift_algo_pack_name[16];
-    ShiftAlgorithmPack shift_algo_cal;
-    //char filling_cal_name[16];
-    //FillingCalibration filling_cal;
-} __attribute__ ((packed)) CalibrationInfo;
-// To check if we overflow
-
-extern CalibrationInfo* CAL_RAM_PTR;
+// Calibration is compiled in (struct defaults above). UN52 loads it from flash instead.
 extern HydraulicCalibration* HYDR_PTR;
 extern MechanicalCalibration* MECH_PTR;
 extern TorqueConverterCalibration* TCC_CFG_PTR;
-extern ShiftAlgorithmPack* SHIFT_ALGO_CFG_PTR;
-extern FillingCalibration* FILLING_PTR;
 
 #endif

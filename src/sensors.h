@@ -1,28 +1,19 @@
-
 #ifndef SENSORS_H
 #define SENSORS_H
 
 #include <stdint.h>
 
 struct SensorDataRaw {
-    uint16_t rpm_n2;
-    uint16_t rpm_n3;
-    uint16_t rpm_out;
-    uint16_t battery_mv;
-    int atf_temp_c;
-    uint8_t parking_lock;
+    uint16_t battery_mv;  // UINT16_MAX if not available
+    int16_t atf_temp_c;   // INT16_MAX if not available (Also when parking lock is engaged)
+    uint8_t parking_lock; // 1 = P/N (TFT circuit open), 0 = in gear, UINT8_MAX = not available
 };
 
 namespace Sensors {
     /**
-     * @brief Initializes the sensor subsystem of the gearbox
-     *
-     * @return true If initialization OK
-     * @return false if initialization failed
+     * @brief Reads the analog sensors on the Mega (battery voltage, ATF temperature / parking lock)
      */
-   //esp_err_t init_sensors(void);
     void update(SensorDataRaw* dest);
-    bool using_dedicated_output_rpm();
 }
 
 #endif // SENSORS_H

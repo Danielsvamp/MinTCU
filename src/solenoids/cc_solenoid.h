@@ -1,24 +1,60 @@
 #ifndef __CONSTANT_CURRENT_SOLENOID_H_
 #define __CONSTANT_CURRENT_SOLENOID_H_
 
-#include "pwm_solenoid.h"
-//#include "driver/gptimer.h"
+#include <stdint.h>
 
-class ConstantCurrentSolenoid : public PwmSolenoid {
+/**
+ * MPC / SPC solenoid driver.
+ *
+ * UN52 measures the solenoid current and runs a PID loop on it. MinTCU has no current sensing,
+ * so this is OPEN LOOP: the PWM duty that should give the target current is calculated from
+ * the battery voltage and the coil resistance at the current ATF temperature.
+ *
+ * With a flyback diode across the coil, the average coil voltage over one PWM period is
+ *   V_avg = D * (V_batt - V_driver) - (1 - D) * V_diode
+ * and the average current is V_avg / R(T). Solving for D gives the duty used here:
+ *   D = (I * R(T) + V_diode) / (V_batt - V_driver + V_diode)
+ *   R(T) = R_ref * (1 + coefficient * (T - T_ref))
+ *
+ * This is an estimate! Check it with an ammeter in series with the solenoid at least once.
+ */
+class ConstantCurrentSolenoid {
 public:
-    explicit ConstantCurrentSolenoid(const char* name, ledc_timer_t ledc_timer, gpio_num_t pwm_pin, ledc_channel_t channel, adc_channel_t read_channel, uint16_t phase_duration_ms);
-    void __write_pwm(float vref_compensation, float temperature_factor, bool stop_compensation);
+    enum class Timer1Channel : uint8_t {
+        A, // OC1A (Pin 11)
+        B, // OC1B (Pin 12)
+    };
+
+    explicit ConstantCurrentSolenoid(const char* name, Timer1Channel channel);
     void set_current_target(uint16_t target_ma);
-    void update_when_reading(uint16_t battery);
-    uint16_t get_current_target();
-    uint16_t get_current(void) const;
-    float get_trim();
+    uint16_t get_current_target() const;
+
+    /**
+     * @brief Calculates and writes the new PWM duty. Call every control loop.
+     * @param battery_mv Solenoid supply voltage. UINT16_MAX if not available (Solenoid is switched off)
+     * @param coil_temp_c Coil temperature (ATF temperature). INT16_MAX if not available
+     */
+    void update(uint16_t battery_mv, int16_t coil_temp_c);
+
+    /**
+     * @brief Forces the solenoid off (0mA = max pressure for MPC/SPC) until the next update with a target
+     */
+    void off();
+
+    // Estimated current in mA (What the open loop model thinks is flowing)
+    uint16_t get_current_estimate() const;
+    // PWM duty, 0-1000 (0.1% steps)
+    uint16_t get_duty_permille() const;
+    // Coil resistance used for the last calculation, in mOhm
+    uint16_t get_resistance_mohm() const;
 private:
-    int16_t trim_pwm = 0;
-    uint16_t saved_current_target = 0;
+    void write_duty(uint16_t ticks);
+    const char* name;
+    Timer1Channel channel;
     uint16_t current_target = 0;
-    bool correct_cycle = false;
-    int32_t pid[3] = { 0,0,0 };
+    uint16_t current_estimate = 0;
+    uint16_t duty_ticks = 0;
+    uint16_t resistance_mohm = 0;
 };
 
 #endif
