@@ -11,6 +11,12 @@
 #define ATF_MAX_ERROR_CYCLES 10   // 200ms
 #define VBATT_MAX_ERROR_CYCLES 5  // 100ms
 
+float RATIO_2_1 = 1.61;
+
+TCUIO::SmoothedSensor smoothed_sensor_n2_rpm;
+TCUIO::SmoothedSensor smoothed_sensor_n3_rpm;
+TCUIO::SmoothedSensor smoothed_sensor_out_rpm;
+
 TCUIO::SmoothedSensor smoothed_sensor_atf_temp;
 TCUIO::SmoothedSensor smoothed_sensor_vbatt;
 
@@ -88,11 +94,17 @@ inline int16_t get_smoothed_sensor_val_signed(TCUIO::SmoothedSensor* src, uint8_
     return ret;
 }
 
-void TCUIO::setup_io_layer() {
+bool TCUIO::setup_io_layer() {
+    bool ret = Sensors::init_sensors();
+    init_smoothed_sensor(&smoothed_sensor_n2_rpm, 3, 0);
+    init_smoothed_sensor(&smoothed_sensor_n3_rpm, 3, 0);
+    init_smoothed_sensor(&smoothed_sensor_out_rpm, 3, 0);
+
     init_smoothed_sensor(&smoothed_sensor_atf_temp, 12, 25); //250ms/20ms
     init_smoothed_sensor(&smoothed_sensor_vbatt, 12, 12000); // 250ms/20ms
     init_onepoll<uint8_t>(&onepoll_parking_lock, UINT8_MAX);
     init_onepoll<int16_t>(&onepoll_motor_temperature, INT16_MAX);
+    return ret;
 }
 
 bool was_reading_from_engine = false;
@@ -118,6 +130,14 @@ void update_tft_sensor() {
     was_reading_from_engine = atf_from_engine_temp;
 }
 
+void update_rpm_sensors() {
+    add_to_smoothed_sensor(&smoothed_sensor_n2_rpm, raw_sensors.rpm_n2, UINT16_MAX);
+    add_to_smoothed_sensor(&smoothed_sensor_n3_rpm, raw_sensors.rpm_n3, UINT16_MAX);
+    // OUTPUT SHAFT RPM. UN52 falls back to the rear wheel speeds on CAN here, MinTCU only has
+    // the dedicated sensor (raw_sensors.rpm_out is UINT16_MAX without it)
+    add_to_smoothed_sensor(&smoothed_sensor_out_rpm, raw_sensors.rpm_out, UINT16_MAX);
+}
+
 void update_can_values() {
     // Motor coolant temperature (Used as a sub for ATF temperature)
     int16_t coolant = INT16_MAX;
@@ -131,10 +151,20 @@ void TCUIO::update_io_layer() {
     Sensors::update(&raw_sensors); // 1. Update PCB Hal
     // Poll CAN Layer inputs
     update_can_values();
+
+    update_rpm_sensors();
     // Now do battery voltage
     add_to_smoothed_sensor(&smoothed_sensor_vbatt, raw_sensors.battery_mv, UINT16_MAX);
     // To TFT and parking lock
     update_tft_sensor();
+}
+
+void TCUIO::set_2_1_ratio(float ratio) {
+    RATIO_2_1 = ratio;
+}
+
+uint16_t TCUIO::calc_turbine_rpm(const uint16_t n2, const uint16_t n3) {
+    return MAX(0,((float)n2 * RATIO_2_1) + ((float)n3 - (RATIO_2_1*(float)n3)));
 }
 
 uint8_t TCUIO::parking_lock() { return get_onepoll_sensor_val<uint8_t>(&onepoll_parking_lock, 0, UINT8_MAX); }
@@ -142,3 +172,12 @@ uint8_t TCUIO::parking_lock() { return get_onepoll_sensor_val<uint8_t>(&onepoll_
 int16_t TCUIO::atf_temperature() { return get_smoothed_sensor_val_signed(&smoothed_sensor_atf_temp, ATF_MAX_ERROR_CYCLES); }
 uint16_t TCUIO::battery_mv() { return get_smoothed_sensor_val_unsigned(&smoothed_sensor_vbatt, VBATT_MAX_ERROR_CYCLES); }
 int16_t TCUIO::motor_temperature() { return get_onepoll_sensor_val<int16_t>(&onepoll_motor_temperature, 5, INT16_MAX); }
+uint16_t TCUIO::n2_rpm() {
+    return get_smoothed_sensor_val_unsigned(&smoothed_sensor_n2_rpm, 0);
+}
+uint16_t TCUIO::n3_rpm() {
+    return get_smoothed_sensor_val_unsigned(&smoothed_sensor_n3_rpm, 0);
+}
+uint16_t TCUIO::output_rpm() {
+    return get_smoothed_sensor_val_unsigned(&smoothed_sensor_out_rpm, 0);
+}

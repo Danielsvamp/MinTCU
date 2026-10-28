@@ -29,8 +29,35 @@ Gearbox::Gearbox()
     memset(&this->sensor_data, 0, sizeof(this->sensor_data));
     this->sensor_data.atf_temp = ATF_FAILSAFE_TEMP_C;
     this->sensor_data.tcc_trq_multiplier = 1.0;
+    memset(&this->speed_sensors, 0, sizeof(this->speed_sensors));
     this->gearboxConfig.max_torque = 0;
     this->cal_ok = EGSCal::init_egs_calibration();
+    this->sensors_ok = TCUIO::setup_io_layer();
+    if (this->cal_ok) {
+        // Same as UN52 (Ratios are checked to be non zero in init_egs_calibration)
+        float r1 = ((float)(MECH_PTR->ratio_table[1])) / 1000.0;
+        float r2 = ((float)(MECH_PTR->ratio_table[2])) / 1000.0;
+        float r3 = ((float)(MECH_PTR->ratio_table[3])) / 1000.0;
+        float r4 = ((float)(MECH_PTR->ratio_table[4])) / 1000.0;
+        float r5 = ((float)(MECH_PTR->ratio_table[5])) / 1000.0;
+        float rr1 = ((float)(MECH_PTR->ratio_table[6]) * -1) / 1000.0;
+        float rr2 = ((float)(MECH_PTR->ratio_table[7]) * -1) / 1000.0;
+
+        this->gearboxConfig.max_torque = 330;
+        if (MECH_PTR->gb_ty == 0) {
+            this->gearboxConfig.max_torque = 580;
+        }
+        const float ratios[7] = {r1, r2, r3, r4, r5, rr1, rr2};
+        for (uint8_t i = 0; i < 7; i++) {
+            this->gearboxConfig.bounds[i] = GearRatioInfo{
+                .ratio_max_drift = ratios[i] * (float)1.1,
+                .ratio = ratios[i],
+                .ratio_min_drift = ratios[i] * (float)0.9,
+            };
+        }
+        // IMPORTANT - Set the Ratio2/Ratio1 multiplier for the sensor RPM reading algorithm!
+        TCUIO::set_2_1_ratio(r1 / r2);
+    }
 
     this->pressure_mgr = new PressureManager(&this->sensor_data, this->gearboxConfig.max_torque);
     pressure_manager = this->pressure_mgr;
@@ -67,6 +94,50 @@ void Gearbox::update_gear_from_shifter() {
     this->target_gear = this->actual_gear;
 }
 
+bool Gearbox::is_stationary() {
+    return this->sensor_data.output_rpm < 10;
+}
+
+// Same as UN52
+bool Gearbox::process_speed_sensors()
+{
+    bool ok = true;
+    bool conduct_sanity_check =
+        (this->actual_gear == this->target_gear) && (                                                 // Same gear (Not shifting)
+            (this->actual_gear == GearboxGear::Second) || // And in 2..
+            (this->actual_gear == GearboxGear::Third) ||  // .. or 3 ..
+            (this->actual_gear == GearboxGear::Fourth)    // .. or 4
+            );
+    uint16_t n2 = TCUIO::n2_rpm();
+    uint16_t n3 = TCUIO::n3_rpm();
+    uint16_t output = TCUIO::output_rpm();
+
+    if (UINT16_MAX != n2 && UINT16_MAX != n3) {
+        uint16_t turbine = TCUIO::calc_turbine_rpm(n2, n3);
+        if (conduct_sanity_check) {
+            if (abs((int32_t)n2 - (int32_t)n3) > 100) {
+                ok = false;
+            }
+        }
+        if (ok) {
+            this->speed_sensors.turbine = turbine;
+        }
+        this->speed_sensors.n2 = n2;
+        this->speed_sensors.n3 = n3;
+    } else {
+        ok = false;
+    }
+
+    if (UINT16_MAX != output) {
+        speed_sensors.output = output;
+    }
+    else {
+        ok = false; // Output RPM failed
+    }
+
+    return ok;
+}
+
 void Gearbox::controller_loop() {
     uint32_t start = GET_CLOCK_TIME();
     if (start - this->last_frame_time < GEARBOX_FRAME_MS) {
@@ -75,6 +146,27 @@ void Gearbox::controller_loop() {
     this->last_frame_time = start;
 
     TCUIO::update_io_layer();
+
+    // Speed sensors. UN52 only copies input and output RPM when both are OK.
+    // MinTCU can run without the output sensor, so the input RPM is used on its own
+    bool speeds_valid = this->process_speed_sensors();
+    this->sensor_data.input_rpm = this->speed_sensors.turbine;
+    if (TCUIO::output_rpm() != UINT16_MAX) {
+        this->sensor_data.output_rpm = this->speed_sensors.output;
+    } else {
+        this->sensor_data.output_rpm = 0;
+    }
+    if (speeds_valid && !this->is_stationary()) {
+        // Store our ratio (Same as UN52)
+        if (this->actual_gear == GearboxGear::Neutral || this->actual_gear == GearboxGear::Park || this->actual_gear == GearboxGear::SignalNotAvailable) {
+            this->sensor_data.gear_ratio = 0.0;
+        } else {
+            this->sensor_data.gear_ratio = (float)this->sensor_data.input_rpm / (float)this->sensor_data.output_rpm;
+        }
+    } else {
+        // Stationary so no ratios
+        this->sensor_data.gear_ratio = 0.0;
+    }
 
     // Pedal (Same as UN52)
     uint8_t p_tmp = egs_can_hal->get_pedal_value(1000);
@@ -135,7 +227,7 @@ void Gearbox::controller_loop() {
     if (INT16_MAX != trqs.m_ind) { sensor_data.indicated_torque = trqs.m_ind; }
     if (INT16_MAX != trqs.m_converted_static) { sensor_data.converted_torque = trqs.m_converted_static; }
     if (INT16_MAX != trqs.m_converted_driver) {
-        // input_rpm is 0 until N2/N3 are read, so this uses the stall torque multiplication (safe side)
+        // Without N2/N3 input_rpm is 0, so this uses the stall torque multiplication (safe side)
         int16_t input_trq = InputTorqueModel::get_input_torque(
             sensor_data.engine_rpm,
             sensor_data.input_rpm,
@@ -194,6 +286,16 @@ void Gearbox::print_log() {
     Serial.print(GET_CLOCK_TIME());
     Serial.print(',');
     Serial.print(this->sensor_data.engine_rpm);
+    Serial.print(',');
+    Serial.print(this->speed_sensors.n2);
+    Serial.print(',');
+    Serial.print(this->speed_sensors.n3);
+    Serial.print(',');
+    Serial.print(this->sensor_data.input_rpm);
+    Serial.print(',');
+    Serial.print(TCUIO::output_rpm() != UINT16_MAX ? this->sensor_data.output_rpm : -1);
+    Serial.print(',');
+    Serial.print(this->sensor_data.gear_ratio, 2);
     Serial.print(',');
     Serial.print(this->sensor_data.pedal_pos);
     Serial.print(',');

@@ -10,4 +10,7 @@ void initPins() {
     setPinMode(Pin::can_int, INPUT_PULLUP);
     setPinMode(Pin::vsense_pin, INPUT);
     setPinMode(Pin::atf_pin, INPUT);
+    setPinMode(Pin::n2_pin, INPUT);
+    setPinMode(Pin::n3_pin, INPUT);
+    setPinMode(Pin::io_pin, INPUT);
 }

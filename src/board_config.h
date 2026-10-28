@@ -22,6 +22,9 @@ enum class Pin : uint8_t {
     tcc_pwm    = 13, // Torque converter solenoid (kept OFF for now, pin 13 is Timer0 which millis() uses)
     can_cs     = 53, // MCP2515 chip select
     can_int    = 2,  // MCP2515 INT pin (must be an interrupt pin: 2, 3, 18, 19, 20, 21)
+    n2_pin     = 18, // N2 input speed sensor (INT3)
+    n3_pin     = 19, // N3 input speed sensor (INT2)
+    io_pin     = 3,  // Dedicated output speed sensor (INT5), used when VEHICLE_CONFIG.io_0_usage == 1
     vsense_pin = A1, // Battery voltage (solenoid supply) via divider
     atf_pin    = A0, // ATF temp sensor (TFT) and park/neutral lockout, with pull-up to 5V
 };
@@ -41,6 +44,9 @@ enum class Pin : uint8_t {
 #define ATF_PULLUP_OHM 2000UL
 // Above this ADC reading the TFT circuit is open, meaning the park/neutral switch is open (P or N)
 #define ATF_PLL_OPEN_ADC 950
+
+// N2, N3 and the output speed sensor must give a clean 0V / 5V square wave on their pins.
+// The Mega pins are 5V max, so condition the sensor signal before it reaches them.
 
 // Helper to safely convert Pin enum to raw uint8_t for native Arduino API calls
 constexpr uint8_t toRaw(Pin pin) {

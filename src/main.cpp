@@ -21,6 +21,7 @@
 #include "gearbox.h"
 #include "canbus/can_egs52.h"
 #include "tcu_io/tcu_io.hpp"
+#include "sensors.h"
 #include "egs_calibration/calibration_structs.h"
 
 extern const char CAL_DESCRIPTION[];
@@ -50,15 +51,17 @@ void setup() {
         Serial.println(F("CAN init FAILED (Check wiring, CS pin and CAN_CRYSTAL)"));
     }
 
-    TCUIO::setup_io_layer();
-    gearbox = new Gearbox();
+    gearbox = new Gearbox(); // Also sets up the sensors (TCUIO::setup_io_layer)
     Serial.print(F("Calibration: "));
     Serial.println(CAL_DESCRIPTION);
     if (!EGSCal::init_egs_calibration()) {
         Serial.println(F("NO VALID CALIBRATION, staying in failsafe (Run tools/egs_cal_gen.py)"));
     }
+    if (!Sensors::using_dedicated_output_rpm()) {
+        Serial.println(F("No output speed sensor (Set VEHICLE_CONFIG.input_sensor_pulses_per_rev)"));
+    }
 
-    Serial.println(F("ms,rpm,pedal,trq_sta,trq_drv,trq_in,shifter,gear,atf,vbatt,mpc_targ,mpc_corr,mpc_ma,mpc_ma_est,duty_permille,failsafe,can_ovf"));
+    Serial.println(F("ms,rpm,n2,n3,input_rpm,output_rpm,ratio,pedal,trq_sta,trq_drv,trq_in,shifter,gear,atf,vbatt,mpc_targ,mpc_corr,mpc_ma,mpc_ma_est,duty_permille,failsafe,can_ovf"));
     // If the loop ever hangs for 250ms, the Mega resets. Pins go high-Z in reset,
     // the gate pull-downs turn the solenoids off = max pressure
     wdt_enable(WDTO_250MS);

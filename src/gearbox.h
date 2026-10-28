@@ -10,6 +10,7 @@
 #include "common_structs.h"
 #include "pressure_manager.h"
 #include "models/input_torque.hpp"
+#include "models/clutch_speed.hpp"
 #include "shifter/shifter.h"
 
 // Why the gearbox is in failsafe (bit flags, printed in the log)
@@ -38,6 +39,8 @@ public:
 
 private:
     void update_gear_from_shifter();
+    bool process_speed_sensors();
+    bool is_stationary();
     void print_log();
 
     GearboxGear target_gear = GearboxGear::Neutral;
@@ -47,6 +50,8 @@ private:
     int mpc_working = 0;
     ShifterPosition shifter_pos = ShifterPosition::SignalNotAvailable;
     GearboxConfiguration gearboxConfig;
+    SpeedSensors speed_sensors;
+    bool sensors_ok = false;
 
     bool engine_running = false;
     uint8_t engine_rpm_missing_cycles = 0;

@@ -2,6 +2,104 @@
 #include "board_config.h"
 #include <tcu_maths.h>
 #include <tcu_maths_impl.h>
+#include <util/atomic.h>
+#include "nvs/eeprom_config.h"
+
+#define N_SENSOR_PULSES_PER_REV 60 // N2 and N3 are 60 pulses per revolution
+#define MAX_RPM_PCNT 10000
+
+// UN52 uses the ESP32 pulse counter (PCNT) and counts both edges. The Mega has no free hardware
+// counters on usable pins, so each sensor has an external interrupt on its rising edge, which
+// counts the pulse and stores the time of the edge.
+struct PcntMemData {
+    bool init;
+    uint32_t last_time_us; // Time of the last edge used in the previous calc_rpm call
+    uint16_t pulses_rev;
+    uint16_t last_rpm;
+    volatile uint16_t count;
+    volatile uint32_t edge_time_us;
+};
+
+PcntMemData mem_data_n2 = {};
+PcntMemData mem_data_n3 = {};
+PcntMemData mem_data_out = {};
+
+bool output_rpm_ok = false;
+
+static void isr_n2() { mem_data_n2.count++; mem_data_n2.edge_time_us = micros(); }
+static void isr_n3() { mem_data_n3.count++; mem_data_n3.edge_time_us = micros(); }
+static void isr_out() { mem_data_out.count++; mem_data_out.edge_time_us = micros(); }
+
+// UN52 divides the pulses by the time between two calls (20ms). With few pulses per 20ms (Output
+// sensor with a few pulses/rev) that jumps a lot, so this measures from edge to edge instead.
+// With no pulse in this call the last value is kept, but never higher than a pulse arriving
+// right now would give, so a stopping shaft goes down to 0.
+uint16_t calc_rpm(PcntMemData* cb) {
+    uint32_t val = 0;
+    uint16_t pulses;
+    uint32_t edge;
+    uint32_t now = micros();
+    ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+        pulses = cb->count;
+        cb->count = 0;
+        edge = cb->edge_time_us;
+    }
+    uint32_t us_per_rev = (60UL * 1000UL * 1000UL) / cb->pulses_rev;
+    if (0 != pulses) {
+        uint32_t t = edge - cb->last_time_us;
+        if (0 != t) {
+            val = (us_per_rev * pulses) / t;
+        } else {
+            val = MAX_RPM_PCNT;
+        }
+        cb->last_time_us = edge;
+    } else {
+        uint32_t since_edge = now - cb->last_time_us;
+        val = cb->last_rpm;
+        if (0 != since_edge) {
+            val = MIN(val, us_per_rev / since_edge);
+        }
+    }
+    if (val < 60) {
+        val = 0;
+    }
+    if (val > MAX_RPM_PCNT) {
+        val = MAX_RPM_PCNT;
+    }
+    cb->last_rpm = val;
+    return (uint16_t)val;
+}
+
+bool Sensors::using_dedicated_output_rpm() {
+    return output_rpm_ok;
+}
+
+static void configure_pcnt(uint16_t pulses_per_rpm, Pin pin, PcntMemData* mem, void (*isr)(void)) {
+    mem->count = 0;
+    mem->last_rpm = 0;
+    mem->last_time_us = micros();
+    mem->pulses_rev = pulses_per_rpm; // Rising edges only
+    attachInterrupt(digitalPinToInterrupt(toRaw(pin)), isr, RISING);
+    mem->init = true;
+}
+
+bool Sensors::init_sensors(void) {
+    bool ret = true;
+    configure_pcnt(N_SENSOR_PULSES_PER_REV, Pin::n2_pin, &mem_data_n2, isr_n2);
+    configure_pcnt(N_SENSOR_PULSES_PER_REV, Pin::n3_pin, &mem_data_n3, isr_n3);
+
+    // Enable output RPM reading if needed
+    if (VEHICLE_CONFIG.io_0_usage == 1) {
+        if (VEHICLE_CONFIG.input_sensor_pulses_per_rev == 0) {
+            // Cannot init output sensor with 0 pulses/rev specified
+            ret = false;
+        } else {
+            configure_pcnt(VEHICLE_CONFIG.input_sensor_pulses_per_rev, Pin::io_pin, &mem_data_out, isr_out);
+            output_rpm_ok = true;
+        }
+    }
+    return ret;
+}
 
 const uint8_t NUM_TEMP_POINTS = 27u;
 
@@ -22,9 +120,23 @@ static uint32_t adc_to_mv(int raw) {
 }
 
 void Sensors::update(SensorDataRaw* dest) {
+    dest->rpm_n2 = UINT16_MAX;
+    dest->rpm_n3 = UINT16_MAX;
+    dest->rpm_out = UINT16_MAX;
     dest->battery_mv = UINT16_MAX;
     dest->atf_temp_c = INT16_MAX;
     dest->parking_lock = UINT8_MAX;
+
+    // RPM Sensors
+    if (mem_data_n2.init) {
+        dest->rpm_n2 = calc_rpm(&mem_data_n2);
+    }
+    if (mem_data_n3.init) {
+        dest->rpm_n3 = calc_rpm(&mem_data_n3);
+    }
+    if (output_rpm_ok) {
+        dest->rpm_out = calc_rpm(&mem_data_out);
+    }
 
     // Battery voltage. Vin = Vout(R1+R2)/R2
     uint32_t v = adc_to_mv(readPinAnalog(Pin::vsense_pin));
