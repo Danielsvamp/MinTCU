@@ -7,7 +7,7 @@ I've never touched c++, I'm learning while doing, I'm realizing it takes a while
 
 ## What runs right now
 
-Only the pressure part of UN52, nothing shifts yet:
+The pressure part of UN52 and garage shifts (N/P to D/R). It does not upshift or downshift yet:
 
 - CAN (MCP2515, **listen only**, it never transmits), EGS51 or EGS52 frame set, chosen with `egs_can_type` in `src/nvs/eeprom_config.cpp` (UN52 numbers: 1 = EGS51, 2 = EGS52). Default is EGS51 (W210 EDC15C6 from an EGS51 car).
   - EGS51: torque (MS_310), pedal + ESP torque (MS_210), RPM (MS_308), coolant temp (MS_608)
@@ -16,8 +16,10 @@ Only the pressure part of UN52, nothing shifts yet:
 - Speed sensors: N2 and N3 (pins 18/19, 60 pulses/rev) give the input shaft speed like UN52 (`calc_turbine_rpm`). A dedicated output speed sensor (Hall) goes on pin 3. Its pulses per rev go in `input_sensor_pulses_per_rev` (UN52 name) in `src/nvs/eeprom_config.cpp`, while that is 0 the output sensor is not used. The pins take a clean 0/5 V square wave, condition the sensor signals first.
 - MPC pressure from input torque (with the torque converter multiplication from the input speed), same calculation as UN52 (`find_working_mpc_pressure` -> `calc_current_linear_sol` -> pcs map -> mA).
 - No current sensing: the PWM duty is calculated from the wanted current, the battery voltage and the coil resistance at ATF temperature (open loop, see `src/solenoids/cc_solenoid.h`).
-- SPC is at 0 mA (max pressure), Y3/Y4/Y5/TCC are off, so the gearbox sits in 2nd in D and in reverse in R, same as limp mode.
-- Failsafe: engine off, torque frames missing for 200 ms, shifter missing, or battery outside 9-16 V -> MPC 0 mA = max pressure. It has to be OK for 1 s before it leaves failsafe. Watchdog resets the Mega if the loop hangs for 250 ms.
+- Garage shifts, same as UN52: moving the selector from P/N to D or R engages the clutch (B2 for D, B3 for R) with the UN52 SPC/MPC ramps and shift solenoids, watching the input speed (N2/N3) slow down. Back to N/P aborts it. D is always 2nd (the 722.6 limp gear, nothing upshifts yet), the reverse gear is calculated as R1 (more pressure). If N2/N3 read nothing with the engine running, or in failsafe, D/R engages like limp mode (SPC at max pressure). Without the output speed sensor the 'car is still moving' check (output_rpm_force_n) cannot work, so only select D or R when stopped.
+- Shift solenoids Y3/Y4/Y5 (pins 6/7/8): 250 ms full on, then held at the UN52 hold PWM. TCC stays off.
+- Outside a garage shift SPC is at 0 mA (max pressure), like limp mode.
+- Failsafe: no calibration, engine off, torque frames missing for 200 ms, shifter missing, or battery outside 9-16 V -> MPC 0 mA = max pressure. It has to be OK for 1 s before it leaves failsafe. Watchdog resets the Mega if the loop hangs for 250 ms.
 
 ## Before the first test
 
@@ -44,9 +46,12 @@ python3 tools/egs_cal_gen.py egs_db.bin --egs 0305452032 --chassis 210.016 --gea
 
 ## Serial log (115200, 10 Hz, CSV)
 
-`ms,rpm,n2,n3,input_rpm,output_rpm,ratio,pedal,trq_sta,trq_drv,trq_in,shifter,gear,atf,vbatt,mpc_targ,mpc_corr,mpc_ma,mpc_ma_est,duty_permille,failsafe,can_ovf`
+`ms,rpm,n2,n3,input_rpm,output_rpm,ratio,pedal,trq_sta,trq_drv,trq_in,shifter,gear,atf,vbatt,mpc_targ,mpc_corr,mpc_ma,mpc_ma_est,duty_permille,spc_ma,shift_sol,garage,failsafe,can_ovf`
 
 - `output_rpm` is -1 without an output speed sensor, `ratio` is input/output speed (0 when stopped or in P/N)
+- `shift_sol` is hex: 1 = Y3, 2 = Y5, 4 = Y4 on
+- `garage` is `S<stage>.<substage>` during a garage shift, otherwise the last result: 0 = none yet, 1 = OK, 2 = aborted, 3 = skipped (no input speed)
+- `gear` numbers are the UN52 `GearboxGear` enum (2 = 2nd, 8 = P, 9 = N, 10 = R1)
 - `atf` ends with `s` when the sensor is missing and 120 C is used for the pressure map
 - `failsafe` is hex bit flags: 1 = engine off, 2 = no torque, 4 = no shifter, 8 = recovering, 10 = no calibration
 - `can_ovf` counts lost CAN frames, it should stay at 0

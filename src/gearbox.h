@@ -38,7 +38,12 @@ public:
     void controller_loop(void);
 
 private:
-    void update_gear_from_shifter();
+    GearboxGear requested_gear_from_shifter();
+    void update_gear(GearboxGear requested);
+    void start_garage_shift(GearboxGear target);
+    void step_garage_shift();
+    void end_garage_shift();
+    void shift_to_n_p(GearboxGear target);
     bool process_speed_sensors();
     bool is_stationary();
     void print_log();
@@ -52,6 +57,32 @@ private:
     GearboxConfiguration gearboxConfig;
     SpeedSensors speed_sensors;
     bool sensors_ok = false;
+    GearboxGear last_motion_gear = GearboxGear::Second;
+
+    // UN52 runs the garage shift as a loop in its own task (Gearbox::shift_thread, 20ms per loop).
+    // MinTCU has no tasks, so the loop variables live here and step_garage_shift() runs one loop
+    // every gearbox cycle.
+    struct GarageShift {
+        GearboxGear target;
+        bool into_reverse;
+        Clutch applying;
+        GearChange circuit;
+        uint16_t centrifugal;
+        uint16_t spring_p;
+        uint16_t p_mod;
+        uint16_t p_shift;
+        uint16_t p_apply_clutch;
+        uint16_t p_max_apply_clutch;
+        uint8_t stage;
+        uint8_t substage;
+        uint8_t timer_s;
+        uint8_t timer_m;
+        bool completed_ok;
+        bool jump_to_pid;
+        int32_t rpm_delta;
+    } gar;
+    // Last garage shift: 0 = none yet, 1 = OK, 2 = aborted, 3 = skipped (no input speed, engaged like limp mode)
+    uint8_t gar_result = 0;
 
     bool engine_running = false;
     uint8_t engine_rpm_missing_cycles = 0;

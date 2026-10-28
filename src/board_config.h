@@ -8,15 +8,16 @@
 
     MPC and SPC MUST stay on pins 11 and 12, they are driven by Timer1 (OC1A / OC1B)
     in solenoids.cpp at 1kHz with 16000 steps. analogWrite() is not used for them.
+    Y3/Y4/Y5 must be on PWM pins that are not on Timer0 or Timer1 (analogWrite, ~490Hz).
 
     Every solenoid output needs a gate pull-down resistor (10k) on the MOSFET, so the
     solenoids are OFF while the Mega is in reset / bootloader. MPC and SPC OFF = 0mA = max pressure,
     shift solenoids OFF = gearbox stays in 2nd (D) or R. That is the 722.6 limp mode.
 */
 enum class Pin : uint8_t {
-    y3_pwm     = 24, // Y3 (1-2/4-5) shift solenoid (kept OFF for now)
-    y4_pwm     = 23, // Y4 (3-4) shift solenoid (kept OFF for now)
-    y5_pwm     = 22, // Y5 (2-3) shift solenoid (kept OFF for now)
+    y3_pwm     = 6,  // Y3 (1-2/4-5) shift solenoid (Timer4 PWM, used for the hold PWM)
+    y4_pwm     = 7,  // Y4 (3-4) shift solenoid (Timer4 PWM)
+    y5_pwm     = 8,  // Y5 (2-3) shift solenoid (Timer4 PWM)
     mpc_pwm    = 11, // Modulating pressure solenoid (Timer1 OC1A)
     spc_pwm    = 12, // Shift pressure solenoid (Timer1 OC1B)
     tcc_pwm    = 13, // Torque converter solenoid (kept OFF for now, pin 13 is Timer0 which millis() uses)

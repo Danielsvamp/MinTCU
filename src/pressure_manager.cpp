@@ -7,7 +7,7 @@
 #include "egs_calibration/calibration_structs.h"
 
 /*
-    Ported from UN52 pressure_manager.cpp (MPC hold pressure only, no shifting yet).
+    Ported from UN52 pressure_manager.cpp (MPC hold pressure, and what the garage shift needs).
 
     NOTE: int is 16 bit on the Mega2560 (32 bit on the ESP32 UN52 runs on), so every
     calculation that can go above 32767 is done in int32_t here.
@@ -107,6 +107,11 @@ void PressureManager::update_pressures(GearboxGear current_gear, GearChange chan
 void PressureManager::set_failsafe(bool active) {
     this->failsafe = active;
     if (active) {
+        // Shift solenoids off too (Limp: 2nd in D, R)
+        this->set_shift_circuit(ShiftCircuit::sc_1_2, false);
+        this->set_shift_circuit(ShiftCircuit::sc_2_3, false);
+        this->set_shift_circuit(ShiftCircuit::sc_3_4, false);
+        this->set_spc_p_max();
         // Next time we leave failsafe, start from max pressure and filter down (find_working_mpc_pressure)
         this->target_modulating_pressure = get_max_solenoid_pressure();
     }
@@ -256,5 +261,96 @@ uint16_t PressureManager::get_corrected_modulating_pressure(void) const {
 }
 
 void PressureManager::set_target_modulating_pressure(uint16_t targ) {
+    uint16_t max_p = get_max_solenoid_pressure();
+    if (targ > max_p) {
+        targ = max_p;
+    }
     this->target_modulating_pressure = targ;
+}
+
+void PressureManager::set_target_shift_pressure(uint16_t targ) {
+    uint16_t max_p = get_max_solenoid_pressure();
+    if (targ > max_p) {
+        targ = max_p;
+    }
+    this->target_shift_pressure = targ;
+    this->shift_sol_en = true;
+}
+
+void PressureManager::set_spc_p_max() {
+    this->target_shift_pressure = get_max_solenoid_pressure();
+    this->shift_sol_en = false;
+}
+
+uint16_t PressureManager::get_input_shift_pressure(void) const {
+    return this->target_shift_pressure;
+}
+
+uint16_t PressureManager::get_corrected_spc_pressure(void) const {
+    return this->corrected_spc_pressure;
+}
+
+uint16_t PressureManager::get_max_shift_pressure(uint8_t shift_idx) {
+    uint32_t max_p = (uint32_t)(this->get_max_solenoid_pressure() - HYDR_PTR->shift_reg_spring_pressure) * HYDR_PTR->shift_spc_gain[shift_idx];
+    max_p /= 1000; // shift_spc_gain is *1000;
+    return max_p;
+}
+
+float PressureManager::calculate_centrifugal_force_for_clutch(Clutch clutch, uint16_t input, uint16_t rear_sun) {
+    float speed = 0;
+    uint8_t sel_idx = 0xFF;
+    float ret = 0;
+    switch (clutch) {
+        case Clutch::K1:
+            sel_idx = 0;
+            speed = input;
+            break;
+        case Clutch::K2:
+            sel_idx = 1;
+            speed = input;
+            break;
+        case Clutch::K3:
+            sel_idx = 2;
+            speed = rear_sun;
+            break;
+        default:
+            break;
+    }
+    if (sel_idx != 0xFF) {
+        int32_t clutch_factor = MECH_PTR->atf_density_centrifugal_force_factor[sel_idx];
+        if (clutch_factor != 0) {
+            float drop = (MECH_PTR->atf_density_drop_per_c * (float)(sensor_data->atf_temp + 50))/100.0;
+            float density_now = MECH_PTR->atf_density_minus_50c - drop;
+            ret = (((speed*speed)/1000.0)*density_now) / clutch_factor;
+            ret /= 10.0; // To convert to mbar
+        }
+    }
+    return ret;
+}
+
+void PressureManager::set_shift_circuit(ShiftCircuit ss, bool enable) {
+    OnOffSolenoid* manipulated = nullptr;
+    if (ShiftCircuit::sc_1_2 == ss) {
+        manipulated = sol_y3;
+    } else if (ShiftCircuit::sc_2_3 == ss) {
+        manipulated = sol_y5;
+    } else if (ShiftCircuit::sc_3_4 == ss) {
+        manipulated = sol_y4;
+    } else if (ShiftCircuit::sc_4_5 == ss) {
+        manipulated = sol_y3;
+    } else { // No shift circuit (placeholder)
+        return;
+    }
+    // Firstly, check if new value is 0 (Close the solenoid!)
+    if (!enable) {
+        manipulated->off();
+        this->shift_circuit_flag &= ~(uint8_t)ss; //
+    } else { // Check if current value is 0, if so, write full PWM
+        manipulated->on();
+        this->shift_circuit_flag |= (uint8_t)ss; //
+    }
+}
+
+uint8_t PressureManager::get_active_shift_circuits(void) const {
+    return this->shift_circuit_flag;
 }

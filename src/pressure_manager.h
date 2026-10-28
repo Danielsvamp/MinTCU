@@ -18,6 +18,20 @@ class PressureManager {
 
 public:
     void set_target_modulating_pressure(uint16_t targ);
+    void set_target_shift_pressure(uint16_t targ);
+    /**
+     * @brief SPC off (0mA = maximum shift pressure)
+     */
+    void set_spc_p_max();
+    uint16_t get_input_shift_pressure(void) const;
+    uint16_t get_corrected_spc_pressure(void) const;
+    uint16_t get_max_shift_pressure(uint8_t shift_idx);
+    float calculate_centrifugal_force_for_clutch(Clutch clutch, uint16_t input, uint16_t rear_sun);
+    /**
+     * @brief Switches a shift solenoid (Y3/Y4/Y5) on or off
+     */
+    void set_shift_circuit(ShiftCircuit ss, bool enable);
+    uint8_t get_active_shift_circuits(void) const;
 
     uint16_t get_max_solenoid_pressure();
     uint16_t get_spring_pressure(Clutch c);
@@ -76,6 +90,7 @@ private:
     bool mpc_flushing = false;
     uint8_t mpc_flush_timer = 0; // uint8_t like UN52. Note: mpc_no_flush_time (30000) gets truncated to 48 here, same as UN52
     bool failsafe = false;
+    uint8_t shift_circuit_flag = 0;
 };
 
 extern PressureManager* pressure_manager;
