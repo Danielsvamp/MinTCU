@@ -6,7 +6,7 @@
 /*
     Default maps from UN52 maps.h / maps.cpp (Only the ones MinTCU uses).
     UN52 stores these in NVS (StoredMap) and uses these values when nothing is stored.
-    MinTCU has no NVS, so these are always used.
+    MinTCU only saves the TCC adaptation maps (nvs/eeprom_impl.cpp), so the others are always these.
 */
 
 // -- FILL TIME --
@@ -31,8 +31,38 @@ extern const int16_t TCC_ADAPT_MAP_X[6];
 extern const int16_t TCC_ADAPT_MAP_Y[6];
 extern const int16_t TCC_ADAPT_MAP_Z[TCC_ADAPT_MAP_Z_SIZE];
 
+// Shift maps and shift time maps. These are in flash (TCU_FLASH), read them with LookupFlashMap
+// (Or pgm_read_word), never as a normal array.
+#define SHIFT_MAP_SIZE 44
+extern const int16_t S_DIESEL_UPSHIFT_MAP[SHIFT_MAP_SIZE];
+extern const int16_t S_DIESEL_DOWNSHIFT_MAP[SHIFT_MAP_SIZE];
+extern const int16_t S_PETROL_UPSHIFT_MAP[SHIFT_MAP_SIZE];
+extern const int16_t S_PETROL_DOWNSHIFT_MAP[SHIFT_MAP_SIZE];
+extern const int16_t C_DIESEL_UPSHIFT_MAP[SHIFT_MAP_SIZE];
+extern const int16_t C_DIESEL_DOWNSHIFT_MAP[SHIFT_MAP_SIZE];
+extern const int16_t C_PETROL_UPSHIFT_MAP[SHIFT_MAP_SIZE];
+extern const int16_t C_PETROL_DOWNSHIFT_MAP[SHIFT_MAP_SIZE];
+extern const int16_t A_DIESEL_UPSHIFT_MAP[SHIFT_MAP_SIZE];
+extern const int16_t A_DIESEL_DOWNSHIFT_MAP[SHIFT_MAP_SIZE];
+extern const int16_t A_PETROL_UPSHIFT_MAP[SHIFT_MAP_SIZE];
+extern const int16_t A_PETROL_DOWNSHIFT_MAP[SHIFT_MAP_SIZE];
+extern const int16_t M_DIESEL_UPSHIFT_MAP[SHIFT_MAP_SIZE];
+extern const int16_t M_DIESEL_DOWNSHIFT_MAP[SHIFT_MAP_SIZE];
+extern const int16_t M_PETROL_UPSHIFT_MAP[SHIFT_MAP_SIZE];
+extern const int16_t M_PETROL_DOWNSHIFT_MAP[SHIFT_MAP_SIZE];
+
 #define SHIFT_TIME_MAP_SIZE 30
 extern const int16_t M_UPSHIFT_TIME_MAP[SHIFT_TIME_MAP_SIZE];
 extern const int16_t M_DOWNSHIFT_TIME_MAP[SHIFT_TIME_MAP_SIZE];
+extern const int16_t C_UPSHIFT_TIME_MAP[SHIFT_TIME_MAP_SIZE];
+extern const int16_t C_DOWNSHIFT_TIME_MAP[SHIFT_TIME_MAP_SIZE];
+extern const int16_t S_UPSHIFT_TIME_MAP[SHIFT_TIME_MAP_SIZE];
+extern const int16_t S_DOWNSHIFT_TIME_MAP[SHIFT_TIME_MAP_SIZE];
+extern const int16_t A_UPSHIFT_TIME_MAP[SHIFT_TIME_MAP_SIZE];
+extern const int16_t A_DOWNSHIFT_TIME_MAP[SHIFT_TIME_MAP_SIZE];
+extern const int16_t W_UPSHIFT_TIME_MAP[SHIFT_TIME_MAP_SIZE];
+extern const int16_t W_DOWNSHIFT_TIME_MAP[SHIFT_TIME_MAP_SIZE];
+extern const int16_t R_UPSHIFT_TIME_MAP[SHIFT_TIME_MAP_SIZE];
+extern const int16_t R_DOWNSHIFT_TIME_MAP[SHIFT_TIME_MAP_SIZE];
 
 #endif

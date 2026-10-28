@@ -23,6 +23,13 @@ namespace EEPROM {
     esp_err_t read_nvs_map_data(const char* map_name, int16_t* dest, const int16_t* default_map, size_t map_element_count);
     esp_err_t write_nvs_map_data(const char* map_name, const int16_t* to_write, size_t arr_size);
     /**
+     * @brief Last profile of the EWM program button (Same as UN52, NVS key NVS_KEY_LAST_PROFILE).
+     * Two bytes after the map slots (the profile and its inverse). Saving writes them straight away
+     * (eeprom_update_byte, up to 7ms), UN52 only saves when the selector goes into P.
+     */
+    esp_err_t ewm_btn_get_saved_profile(uint8_t* dest);
+    esp_err_t ewm_btn_save_profile(uint8_t save_profile);
+    /**
      * @brief Call from loop(), writes the queued maps in the background
      */
     void poll(void);

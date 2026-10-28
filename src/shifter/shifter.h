@@ -2,6 +2,7 @@
 #define SHIFTER_H
 
 #include <stdint.h>
+#include "programselector/programselector.hpp"
 
 /**
  * @brief Gear shifter style

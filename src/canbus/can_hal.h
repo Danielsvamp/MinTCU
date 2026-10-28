@@ -78,6 +78,36 @@ class EgsBaseCan {
         }
 
         /**
+         * @brief OPTIONAL DATA (For kickdown only) - Returns if the kickdown switch is actuated
+         * @param expire_time_ms data expiration period
+         * @return Returns true if the kickdown switch is being pressed, false if released
+         */
+        virtual bool get_kickdown(const uint32_t expire_time_ms) {
+            return false;
+        }
+
+        /**
+         * This is intended for only the handling of the EWM CAN based shifters.
+         * 
+         * @param expire_time_ms data expiration period
+         * @return True if the profile button is in the depressed position, or False if it is released
+         */
+        virtual bool get_profile_btn_press(const uint32_t expire_time_ms) {
+            return false;
+        }
+
+        /**
+         * @brief OPTIONAL DATA - Returns true if the shifter profile switch is in the top most position
+         * This is intended for only the handling of the EWM CAN based shifters.
+         * 
+         * @param expire_time_ms data expiration period
+         * @return True if the profile switch is in the top position
+         */
+        virtual ProfileSwitchPos get_profile_switch_pos(const uint32_t expire_time_ms) {
+            return ProfileSwitchPos::SNV;
+        }
+
+        /**
          * @brief Engine request to open the TCC or let it slip (Same as UN52, not on EGS51.
          * Not ported for EGS52 yet)
          */

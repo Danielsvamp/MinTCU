@@ -19,6 +19,9 @@ class Egs51Can: public McpCan {
         int16_t get_engine_coolant_temp(const uint32_t expire_time_ms) override;
         uint16_t get_engine_rpm(const uint32_t expire_time_ms) override;
         ShifterPosition get_shifter_position(const uint32_t expire_time_ms) override;
+        bool get_kickdown(const uint32_t expire_time_ms) override;
+        bool get_profile_btn_press(const uint32_t expire_time_ms) override;
+        ProfileSwitchPos get_profile_switch_pos(const uint32_t expire_time_ms) override;
     protected:
         uint8_t import_frame(uint64_t data, uint16_t id, uint32_t now) override;
     private:

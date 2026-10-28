@@ -161,3 +161,26 @@ void EEPROM::poll(void) {
     }
     writing_slot = -1;
 }
+
+static uint16_t last_profile_address() {
+    return slot_address(EEPROM_SLOT_COUNT);
+}
+
+esp_err_t EEPROM::ewm_btn_get_saved_profile(uint8_t* dest) {
+    uint16_t addr = last_profile_address();
+    uint8_t v = eeprom_read_byte((const uint8_t*)addr);
+    uint8_t inv = eeprom_read_byte((const uint8_t*)(addr + 1));
+    if (nullptr == dest || (uint8_t)~v != inv) {
+        // Never saved (Erased EEPROM is 0xFF 0xFF)
+        return ESP_FAIL;
+    }
+    *dest = v;
+    return ESP_OK;
+}
+
+esp_err_t EEPROM::ewm_btn_save_profile(uint8_t save_profile) {
+    uint16_t addr = last_profile_address();
+    eeprom_update_byte((uint8_t*)addr, save_profile);
+    eeprom_update_byte((uint8_t*)(addr + 1), (uint8_t)~save_profile);
+    return ESP_OK;
+}

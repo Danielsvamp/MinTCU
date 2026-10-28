@@ -99,3 +99,15 @@ uint16_t Egs52Can::get_engine_rpm(const uint32_t expire_time_ms) {
 ShifterPosition Egs52Can::get_shifter_position(const uint32_t expire_time_ms) {
     return ewm_shifter_position(&this->ewm_ecu, this->seen(SEEN_EWM_230), expire_time_ms);
 }
+
+bool Egs52Can::get_kickdown(const uint32_t expire_time_ms) {
+    return ewm_kickdown(&this->ewm_ecu, this->seen(SEEN_EWM_230), expire_time_ms);
+}
+
+bool Egs52Can::get_profile_btn_press(const uint32_t expire_time_ms) {
+    return ewm_profile_btn_press(&this->ewm_ecu, this->seen(SEEN_EWM_230), expire_time_ms);
+}
+
+ProfileSwitchPos Egs52Can::get_profile_switch_pos(const uint32_t expire_time_ms) {
+    return ewm_profile_switch_pos(&this->ewm_ecu, this->seen(SEEN_EWM_230), expire_time_ms);
+}

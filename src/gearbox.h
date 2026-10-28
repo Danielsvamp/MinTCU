@@ -12,6 +12,7 @@
 #include "models/input_torque.hpp"
 #include "models/clutch_speed.hpp"
 #include "shifter/shifter.h"
+#include "shifter/shifter_ewm.h"
 #include "profiles.h"
 #include "torque_converter.h"
 #include "shifting_algo/s_algo.h"
@@ -43,6 +44,7 @@ public:
     // + / - on the selector (Same as UN52)
     void inc_gear_request();
     void dec_gear_request();
+    void set_profile(AbstractProfile* prof);
 
 private:
     GearboxGear requested_gear_from_shifter();
@@ -127,6 +129,10 @@ private:
     bool shift_req_was_manual = false;
     ShifterPosition shifter_pos_last = ShifterPosition::SignalNotAvailable;
     AbstractProfile* current_profile = nullptr;
+    ShifterEwm* shifter = nullptr;
+    // Set when an upshift happens with kickdown held. Kickdown cannot request a
+    // downshift again until it is re-armed (See kickdown_rearm_rpm_offset)
+    bool kickdown_rearm_pending = false;
     TorqueConverter* tcc = nullptr;
     uint16_t redline_rpm = 4000;
     float diff_ratio_f = 1.0;

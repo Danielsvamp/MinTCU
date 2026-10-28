@@ -5,6 +5,7 @@
 #include "egs_calibration/calibration_structs.h"
 #include "tcu_io/tcu_io.hpp"
 #include "nvs/module_settings.h"
+#include "nvs/eeprom_impl.h"
 #include "shifting_algo/s_algo.h"
 #include "shifting_algo/shift_crossover.h"
 #include "shifting_algo/shift_release.h"
@@ -68,9 +69,10 @@ Gearbox::Gearbox()
     this->pressure_mgr = new PressureManager(&this->sensor_data, this->gearboxConfig.max_torque);
     pressure_manager = this->pressure_mgr;
     this->tcc = new TorqueConverter(this->gearboxConfig.max_torque);
-    // MinTCU only has the Manual profile (+/- on the selector)
+    // Same as UN52 main.cpp: all profiles, the EWM program selector picks one
     Profiles::init_profiles(VEHICLE_CONFIG.engine_type == 0);
-    this->current_profile = manual;
+    this->shifter = new ShifterEwm(&ETS_CURRENT_SETTINGS);
+    this->set_profile(this->shifter->get_profile());
     memset(&this->fwd, 0, sizeof(this->fwd));
 
     // Same as UN52
@@ -252,8 +254,8 @@ GearboxGear Gearbox::requested_gear_from_shifter() {
     return ret;
 }
 
-// Same as UN52 controller_loop: + / - and the profile's up/downshift checks (Manual profile: only
-// downshifts when almost stopped), the forced upshift before redline, and the RPM checks.
+// Same as UN52 controller_loop: + / -, the profile's up/downshift checks (shift maps), kickdown,
+// the forced upshift before redline, and the RPM checks.
 // Only in a forward gear, not shifting, and with no gear ratio mismatch.
 void Gearbox::process_gear_requests() {
     if (this->engine_running && this->speeds_valid && is_fwd_gear(this->actual_gear))
@@ -265,6 +267,7 @@ void Gearbox::process_gear_requests() {
             // Check if profile is loaded
             if (p != nullptr)
             {
+                p->update(&this->sensor_data);
                 // Ask the current drive profile if it thinks, given the current
                 // data, if the car should up/downshift
                 // (No TRRS range restriction, restrict_target is always Fifth with the EWM)
@@ -278,7 +281,11 @@ void Gearbox::process_gear_requests() {
                     this->manual_shift = false;
                 }
             }
-            if (manual == this->current_profile &&
+            if ((standard == this->current_profile ||
+                comfort == this->current_profile ||
+                agility == this->current_profile ||
+                manual == this->current_profile ||
+                winter == this->current_profile) &&
                 this->actual_gear != GearboxGear::Fifth && // Already checked if in FWD gear
                 !this->ask_upshift &&
                 this->engine_spd_flt > this->engine_spd_flt_prev
@@ -309,6 +316,11 @@ void Gearbox::process_gear_requests() {
                 if (next == GearboxGear::Second || calc_input_rpm_from_req_gear(this->sensor_data.output_rpm, next, &this->gearboxConfig) > 900)
                 {
                     this->target_gear = next;
+                    if (sensor_data.kickdown_pressed) {
+                        // Upshifting with kickdown held (EG: Redline). Don't let kickdown
+                        // immediately pull us back into the gear we just left
+                        this->kickdown_rearm_pending = true;
+                    }
                 }
             }
             else if ((this->ask_downshift || sensor_data.kickdown_pressed) && this->actual_gear > GearboxGear::First)
@@ -317,6 +329,15 @@ void Gearbox::process_gear_requests() {
                 GearboxGear prev = prev_gear(this->actual_gear);
                 int32_t prev_rpm = calc_input_rpm_from_req_gear(this->sensor_data.output_rpm, prev, &this->gearboxConfig);
                 bool can_downshift = prev_rpm <= (int32_t)this->redline_rpm - 100;
+                if (can_downshift && !this->ask_downshift && this->kickdown_rearm_pending) {
+                    // Kickdown is the only reason for this downshift, and we upshifted with kickdown
+                    // still held. Only re-arm once the lower gear is well clear of redline
+                    if (prev_rpm <= (int32_t)this->redline_rpm - (int32_t)SBS_CURRENT_SETTINGS.kickdown_rearm_rpm_offset) {
+                        this->kickdown_rearm_pending = false;
+                    } else {
+                        can_downshift = false;
+                    }
+                }
                 if (can_downshift)
                 {
                     this->target_gear = prev;
@@ -937,6 +958,16 @@ void Gearbox::end_garage_shift() {
     this->shifting = false;
 }
 
+// Same as UN52 (No mutex, everything runs in loop())
+void Gearbox::set_profile(AbstractProfile* prof)
+{
+    if ((nullptr != prof) && ((nullptr == current_profile) || (prof != current_profile)))
+    {
+        // Only change if not nullptr!
+        this->current_profile = prof;
+    }
+}
+
 bool Gearbox::is_stationary() {
     return this->sensor_data.output_rpm < 10;
 }
@@ -1213,6 +1244,17 @@ void Gearbox::controller_loop() {
         this->atf_substituted = true;
     }
 
+    // Kickdown (Same as UN52, from the EWM. MinTCU has no kickdown input pin)
+    sensor_data.kickdown_pressed = egs_can_hal->get_kickdown(250);
+    if (!sensor_data.kickdown_pressed) {
+        // Driver has let go of the kickdown switch, so it is re-armed
+        this->kickdown_rearm_pending = false;
+    }
+
+    // Program selector (Same as UN52 input_manager)
+    this->shifter->update();
+    this->set_profile(this->shifter->get_profile());
+
     // Shifter
     this->shifter_pos = egs_can_hal->get_shifter_position(SHIFTER_EXPIRE_MS);
     if (this->shifter_pos != this->shifter_pos_last)
@@ -1228,9 +1270,26 @@ void Gearbox::controller_loop() {
             break;
         case ShifterPosition::P:
             // Same as UN52: moving into P with the parking lock engaged saves the TCC adaptation
-            // (UN52 also saves the shift adaptation and the profile here, MinTCU has neither)
+            // and the profile (UN52 also saves the shift adaptation here, MinTCU has none)
             if (1 == TCUIO::parking_lock()) {
                 this->tcc->save();
+                // Save profile
+                if (ShifterStyle::EWM == shifter->get_shifter_type()) {
+                    if (ETS_CURRENT_SETTINGS.ewm_save_profile && nullptr != this->current_profile) {
+                        // We know that the profile is valid based on
+                        // use selection (EWM button code) - So we don't need to check this
+                        uint8_t tag = this->current_profile->get_profile_id();
+                        // By default, we can save, but just check if manual profile without
+                        // the user wanting to save manual profiles
+                        bool can_save = true;
+                        if (tag == PROFILE_IDX_M || tag == PROFILE_IDX_R || tag == PROFILE_IDX_W) {
+                            can_save = ETS_CURRENT_SETTINGS.ewm_save_profile_manual;
+                        }
+                        if (can_save) {
+                            EEPROM::ewm_btn_save_profile(tag);
+                        }
+                    }
+                }
             }
             break;
         default:
@@ -1411,6 +1470,14 @@ void Gearbox::print_log() {
     Serial.print(this->pressure_mgr->get_targ_tcc_pressure());
     Serial.print(',');
     Serial.print(this->tcc->get_slip_now());
+    Serial.print(',');
+    // Profile (S C W A M R, the letters UN52 shows on the cluster), then K while kickdown is pressed
+    if (nullptr != this->current_profile && this->current_profile->get_profile_id() < NUM_PROFILES) {
+        Serial.print("SCWAMR"[this->current_profile->get_profile_id()]);
+    }
+    if (this->sensor_data.kickdown_pressed) {
+        Serial.print('K');
+    }
     Serial.print(',');
     Serial.print(this->failsafe_reasons, HEX);
     Serial.print(',');

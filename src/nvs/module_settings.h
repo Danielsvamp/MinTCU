@@ -319,6 +319,91 @@ const ADP_MODULE_SETTINGS ADP_DEFAULT_SETTINGS = {
 };
 
 
+enum EwmSelectorType: uint8_t {
+    None = 0,
+    Button = 1,
+    Switch = 2
+};
+
+enum SelectableGearboxProfile : uint8_t {
+    // Standard mode
+    Standard = 0,
+    // Comfort mode
+    Comfort = 1,
+    // Agility mode
+    Agility = 2,
+    /// Manual mode - REQUIRES TIPTRONIC OR PADDLES TO FUNCTION
+    Manual = 3,
+    /// Manual mode - REQUIRES TIPTRONIC OR PADDLES TO FUNCTION
+    Race = 4
+};
+
+// Shifter settings
+typedef struct {
+    // TRRS shifter (Wired to the TCU) has a profile selector?
+    bool trrs_has_profile_selector;
+    // The type of profile selection available on the CAN EWM
+    // shifter
+    EwmSelectorType ewm_selector_type;
+    // When using a switch profile selector. This is the profile
+    // to use when in the top position
+    SelectableGearboxProfile switch_profile_idx_top;
+    // When using a switch profile selector. This is the profile
+    // to use when in the bottom position
+    SelectableGearboxProfile switch_profile_idx_bottom;
+    // When using the SLR profile selector, this is the profile
+    // when the profile selector is in the left position
+    SelectableGearboxProfile slr_profile_idx_left;
+    // When using the SLR profile selector, this is the profile
+    // when the profile selector is in the center position
+    SelectableGearboxProfile slr_profile_idx_center;
+    // When using the SLR profile selector, this is the profile
+    // when the profile selector is in the right position
+    SelectableGearboxProfile slr_profile_idx_right;
+    // CAN Shifter button profile selector - Enable Comfort mode
+    bool ewm_enable_c;
+    // CAN Shifter button profile selector - Enable Winter (Manual 2nd gear start) mode
+    bool ewm_enable_w;
+    // CAN Shifter button profile selector - Enable Agility mode
+    bool ewm_enable_a;
+    // CAN Shifter button profile selector - Enable Manual mode
+    bool ewm_enable_m;
+    // CAN Shifter button profile selector - Enable Race (Super fast manual) mode
+    bool ewm_enable_r;
+    // CAN Shifter button profile selector - Save profile for
+    // next start - Only applys for auto profiles (This overrides startup profile in basic options)
+    bool ewm_save_profile;
+    // CAN Shifter button profile selector - Save profile for
+    // next start (Including manual profile options)
+    bool ewm_save_profile_manual;
+    // Check the WIKI. This option allows you to wire up a push button to the TCU Pin 3 (PRG) if you
+    // are running the EWM shifter without a profile button (W163/Sprinter vehicles). The button
+    // should be wired between VBatt and Pin 3 of the TCU, and should conduct when pressed.
+    bool ewm_custom_profile_btn;
+    // When in automatic profiles (C/S/A), always show the gear number (5/4/3/2/1) on the cluster,
+    // rather than showing just 'D'
+    bool auto_show_gears_always;
+} __attribute__ ((packed)) ETS_MODULE_SETTINGS;
+
+const ETS_MODULE_SETTINGS ETS_DEFAULT_SETTINGS = {
+    .trrs_has_profile_selector = true,
+    .ewm_selector_type = EwmSelectorType::Button,
+    .switch_profile_idx_top = SelectableGearboxProfile::Comfort,
+    .switch_profile_idx_bottom = SelectableGearboxProfile::Standard,
+    .slr_profile_idx_left = SelectableGearboxProfile::Comfort,
+    .slr_profile_idx_center = SelectableGearboxProfile::Standard,
+    .slr_profile_idx_right = SelectableGearboxProfile::Manual,
+    .ewm_enable_c = false,
+    .ewm_enable_w = false,
+    .ewm_enable_a = false,
+    .ewm_enable_m = true,
+    .ewm_enable_r = false,
+    .ewm_save_profile = true,
+    .ewm_save_profile_manual = false,
+    .ewm_custom_profile_btn = false,
+    .auto_show_gears_always = false,
+};
+
 // Release shift settings
 typedef struct {
     // Past this output shaft RPM, torque requests
@@ -552,5 +637,6 @@ extern SBS_MODULE_SETTINGS SBS_CURRENT_SETTINGS;
 extern ADP_MODULE_SETTINGS ADP_CURRENT_SETTINGS;
 extern REL_MODULE_SETTINGS REL_CURRENT_SETTINGS;
 extern CRS_MODULE_SETTINGS CRS_CURRENT_SETTINGS;
+extern ETS_MODULE_SETTINGS ETS_CURRENT_SETTINGS;
 
 #endif

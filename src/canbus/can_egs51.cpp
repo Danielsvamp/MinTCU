@@ -106,3 +106,18 @@ uint16_t Egs51Can::get_engine_rpm(const uint32_t expire_time_ms) {
 ShifterPosition Egs51Can::get_shifter_position(const uint32_t expire_time_ms) {
     return ewm_shifter_position(&this->ewm, this->seen(SEEN_EWM_230), expire_time_ms);
 }
+
+// UN52's EGS51 layer reads kickdown from the EWM, but not the program button or switch (UN52
+// Egs51Can::get_profile_btn_press returns false). The EWM sends the same EWM_230 frame in an
+// EGS51 car, so these use UN52's EGS52 code.
+bool Egs51Can::get_kickdown(const uint32_t expire_time_ms) {
+    return ewm_kickdown(&this->ewm, this->seen(SEEN_EWM_230), expire_time_ms);
+}
+
+bool Egs51Can::get_profile_btn_press(const uint32_t expire_time_ms) {
+    return ewm_profile_btn_press(&this->ewm, this->seen(SEEN_EWM_230), expire_time_ms);
+}
+
+ProfileSwitchPos Egs51Can::get_profile_switch_pos(const uint32_t expire_time_ms) {
+    return ewm_profile_switch_pos(&this->ewm, this->seen(SEEN_EWM_230), expire_time_ms);
+}

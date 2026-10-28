@@ -156,3 +156,34 @@ ShifterPosition ewm_shifter_position(const ECU_EWM* ewm, bool seen, const uint32
     }
     return ret;
 }
+
+// Same as UN52 Egs52Can::get_kickdown (and Egs51Can::get_kickdown)
+bool ewm_kickdown(const ECU_EWM* ewm, bool seen, const uint32_t expire_time_ms) {
+    bool ret  = false;
+    // Only for the CAN shifter
+    EWM_230_EGS52 dest;
+    if (seen && ewm->get_EWM_230(GET_CLOCK_TIME(), expire_time_ms, &dest)) {
+        ret  = dest.KD;
+    }
+    return ret;
+}
+
+// Same as UN52 Egs52Can::get_profile_btn_press
+bool ewm_profile_btn_press(const ECU_EWM* ewm, bool seen, const uint32_t expire_time_ms) {
+    bool result = false;
+    EWM_230_EGS52 dest;
+    if (seen && ewm->get_EWM_230(GET_CLOCK_TIME(), expire_time_ms, &dest)) {
+        result = dest.FPT;
+    }
+    return result;
+}
+
+// Same as UN52 Egs52Can::get_profile_switch_pos
+ProfileSwitchPos ewm_profile_switch_pos(const ECU_EWM* ewm, bool seen, const uint32_t expire_time_ms) {
+    EWM_230_EGS52 dest;
+    ProfileSwitchPos result = ProfileSwitchPos::SNV;
+    if (seen && ewm->get_EWM_230(GET_CLOCK_TIME(), expire_time_ms, &dest)) {
+        result = dest.W_S ? ProfileSwitchPos::Top : ProfileSwitchPos::Bottom;
+    }
+    return result;
+}

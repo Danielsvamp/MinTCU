@@ -62,5 +62,9 @@ class McpCan: public EgsBaseCan {
 // Shifter position from the EWM (Same frame and decoding for EGS51 and EGS52 in UN52)
 #include "../../lib/egs52_ecus/src/EWM.h"
 ShifterPosition ewm_shifter_position(const ECU_EWM* ewm, bool seen, const uint32_t expire_time_ms);
+// Kickdown (KD), program button (FPT) and program switch (W_S) from the EWM (UN52 can_egs52.cpp)
+bool ewm_kickdown(const ECU_EWM* ewm, bool seen, const uint32_t expire_time_ms);
+bool ewm_profile_btn_press(const ECU_EWM* ewm, bool seen, const uint32_t expire_time_ms);
+ProfileSwitchPos ewm_profile_switch_pos(const ECU_EWM* ewm, bool seen, const uint32_t expire_time_ms);
 
 #endif
