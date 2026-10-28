@@ -20,13 +20,26 @@ Only the pressure part of UN52, nothing shifts yet:
 1. Check the pins and constants at the top of `src/board_config.h` (MCP2515 CS/INT, crystal, ADC reference, battery divider, ATF pull-up).
 2. Every solenoid MOSFET needs a flyback diode across the solenoid and a 10k gate pull-down, so a reset means 0 mA.
 3. Measure the MPC solenoid + harness resistance at the TCU plug and put it in `cc_reference_resistance` (`src/nvs/module_settings.h`).
-4. Fill `TorqueConverterCalibration` in `src/egs_calibration/calibration_structs.h` from your EGS calibration (the values there are placeholders).
+4. Generate the calibration (see below). Without it MinTCU stays in failsafe.
 5. Put an ammeter in series with the MPC once and compare it with the `mpc_ma_est` column.
+
+## Calibration
+
+The calibration is the original EGS data from the UN52 config app database (`egs_db.bin` in
+[ultimate-nag52-config-app](https://github.com/rnd-ash/ultimate-nag52-config-app)). Nothing is typed in by hand,
+`tools/egs_cal_gen.py` writes `src/egs_calibration/calibration_data.cpp` from it:
+
+```
+python3 tools/egs_cal_gen.py egs_db.bin --list --gearbox 722.626      # what is in the database
+python3 tools/egs_cal_gen.py egs_db.bin --egs 0305452032 --chassis 210.026
+```
+
+Pick the entry with your gearbox's 722.6xx number (tag plate on the gearbox).
 
 ## Serial log (115200, 10 Hz, CSV)
 
 `ms,rpm,pedal,trq_sta,trq_drv,trq_in,shifter,gear,atf,vbatt,mpc_targ,mpc_corr,mpc_ma,mpc_ma_est,duty_permille,failsafe,can_ovf`
 
 - `atf` ends with `s` when the sensor is missing and 120 C is used for the pressure map
-- `failsafe` is hex bit flags: 1 = engine off, 2 = no torque, 4 = no shifter, 8 = recovering
+- `failsafe` is hex bit flags: 1 = engine off, 2 = no torque, 4 = no shifter, 8 = recovering, 10 = no calibration
 - `can_ovf` counts lost CAN frames, it should stay at 0

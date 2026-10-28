@@ -32,11 +32,12 @@ typedef struct {
     // UNIT: C
     float cc_reference_temp;
     // Voltage drop of the flyback diode across the solenoid (used in the PWM duty calculation)
-    // ~400 for a schottky, ~700 for a normal diode
+    // 1N5822 schottky: about 400mV at 1A (datasheet forward voltage curve)
     //
     // UNIT: mV
     uint16_t cc_flyback_diode_drop_mv;
-    // Voltage drop of the MOSFET + wiring when ON
+    // Voltage drop of the MOSFET when ON. IRLB3034: Rds(on) max 2.0mOhm at Vgs 4.5V, so ~2mV at 1A.
+    // The harness resistance belongs in cc_reference_resistance (measure it at the TCU plug)
     //
     // UNIT: mV
     uint16_t cc_driver_drop_mv;
@@ -48,8 +49,8 @@ const SOL_MODULE_SETTINGS SOL_DEFAULT_SETTINGS = {
     0.393,  // cc_temp_coefficient_wires (same as UN52)
     5.3,    // cc_reference_resistance (same as UN52)
     25,     // cc_reference_temp (same as UN52)
-    700,    // cc_flyback_diode_drop_mv
-    100,    // cc_driver_drop_mv
+    400,    // cc_flyback_diode_drop_mv (1N5822)
+    2,      // cc_driver_drop_mv (IRLB3034)
 };
 
 // Pressure manager settings

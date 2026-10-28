@@ -19,6 +19,7 @@ enum FailsafeReason : uint8_t {
     FS_NO_TORQUE = 1 << 1,       // MS_312 / MS_212 torque frames missing
     FS_NO_SHIFTER = 1 << 2,      // EWM_230 missing or implausible
     FS_RECOVERING = 1 << 3,      // Everything is OK again, waiting before leaving failsafe
+    FS_NO_CAL = 1 << 4,          // No (valid) calibration compiled in, see tools/egs_cal_gen.py
 };
 
 class Gearbox {
@@ -54,6 +55,7 @@ private:
     uint8_t failsafe_reasons = FS_ENGINE_OFF;
     uint8_t failsafe_ok_cycles = 0;
     bool atf_substituted = false;
+    bool cal_ok = false;
 
     uint32_t last_frame_time = 0;
     uint8_t log_counter = 0;

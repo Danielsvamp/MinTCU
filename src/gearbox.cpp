@@ -30,6 +30,7 @@ Gearbox::Gearbox()
     this->sensor_data.atf_temp = ATF_FAILSAFE_TEMP_C;
     this->sensor_data.tcc_trq_multiplier = 1.0;
     this->gearboxConfig.max_torque = 0;
+    this->cal_ok = EGSCal::init_egs_calibration();
 
     this->pressure_mgr = new PressureManager(&this->sensor_data, this->gearboxConfig.max_torque);
     pressure_manager = this->pressure_mgr;
@@ -147,6 +148,9 @@ void Gearbox::controller_loop() {
     // Failsafe (Not in UN52, UN52 keeps the last torque value forever)
     // Anything we cannot trust -> 0mA on MPC/SPC = maximum line pressure, like an unpowered TCU
     uint8_t reasons = FS_NONE;
+    if (!this->cal_ok) {
+        reasons |= FS_NO_CAL;
+    }
     if (!this->engine_running) {
         reasons |= FS_ENGINE_OFF;
     }

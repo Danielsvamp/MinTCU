@@ -173,15 +173,13 @@ uint16_t PressureManager::find_working_mpc_pressure(GearboxGear curr_g, bool flu
     }
     uint8_t gear_idx = gear_to_idx_lookup(curr_g);
     uint16_t output = 0;
-    // MinTCU uses its own strongestClutchKL / releaseSpringPressureKL tables here,
-    // UN52 uses strongest_loaded_clutch_idx / release_spring_pressure
-    uint8_t clutch_idx = MECH_PTR->strongestClutchKL[gear_idx];
+    uint8_t clutch_idx = MECH_PTR->strongest_loaded_clutch_idx[gear_idx];
     if (gear_idx == 0 || clutch_idx >= 6) {
         // N,P,SNV
         output = 0;
     } else {
         float ret = p_clutch_with_coef(curr_g, (Clutch)clutch_idx, abs(sensor_data->input_torque), CoefficientTy::Static);
-        ret += (MECH_PTR->releaseSpringPressureKL[clutch_idx] + HYDR_PTR->extra_p_not_shifting);
+        ret += (MECH_PTR->release_spring_pressure[clutch_idx] + HYDR_PTR->extra_p_not_shifting);
         if (curr_g == GearboxGear::First || curr_g == GearboxGear::Reverse_First) {
             ret *= (HYDR_PTR->p_multi_1 / 1000.0);
         } else {

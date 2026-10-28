@@ -21,6 +21,9 @@
 #include "gearbox.h"
 #include "canbus/can_egs52.h"
 #include "tcu_io/tcu_io.hpp"
+#include "egs_calibration/calibration_structs.h"
+
+extern const char CAL_DESCRIPTION[];
 
 // After a watchdog reset the watchdog stays enabled with the shortest timeout. Turn it off as early
 // as possible, otherwise the Mega can reset over and over (Some old Mega bootloaders don't do this).
@@ -49,6 +52,11 @@ void setup() {
 
     TCUIO::setup_io_layer();
     gearbox = new Gearbox();
+    Serial.print(F("Calibration: "));
+    Serial.println(CAL_DESCRIPTION);
+    if (!EGSCal::init_egs_calibration()) {
+        Serial.println(F("NO VALID CALIBRATION, staying in failsafe (Run tools/egs_cal_gen.py)"));
+    }
 
     Serial.println(F("ms,rpm,pedal,trq_sta,trq_drv,trq_in,shifter,gear,atf,vbatt,mpc_targ,mpc_corr,mpc_ma,mpc_ma_est,duty_permille,failsafe,can_ovf"));
     // If the loop ever hangs for 250ms, the Mega resets. Pins go high-Z in reset,
