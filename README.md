@@ -24,7 +24,7 @@ The pressure part of UN52, garage shifts (N/P to D/R) and manual up/downshifts w
   - `diff_ratio` and `engine_drag_torque` in `eeprom_config.cpp` are the UN52 defaults (1.000 and 40 Nm).
 - Shift solenoids Y3/Y4/Y5 (pins 6/7/8): 250 ms full on, then held at the UN52 hold PWM.
 - Torque converter lock-up (TCC), same as UN52 (`src/torque_converter.cpp`): in a forward gear above 1000 RPM input it fills the converter clutch and then controls the slip (engine RPM - input RPM) to the UN52 slip target map, with the UN52 PID and adaptation. Differences from UN52:
-  - The TCC adaptation is not saved (no EEPROM use yet). It starts from the UN52 defaults (0) after every reset and learns again while driving.
+  - The TCC adaptation is saved to the Mega's EEPROM (instead of the ESP32 NVS) when the selector goes into P with the parking lock in, same as UN52. It is written in the background, one byte at a time and only bytes that changed (`src/nvs/eeprom_impl.cpp`). If the saved data is missing or broken (CRC), that gear starts from the UN52 default (0) again.
   - The TCC solenoid is on **pin 5** (Timer3). It is driven like UN52 (100 Hz, full on for up to 1.5 ms, then the 10 kHz hold PWM), with the times rounded to 100 us.
   - The EDC15 (EGS51) does not ask for the TCC to open, so that part is never used. It is not read on EGS52 yet either.
 - Outside a shift SPC is at 0 mA (max pressure), like limp mode.

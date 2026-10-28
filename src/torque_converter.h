@@ -12,9 +12,8 @@
 
 /*
     Ported from UN52 torque_converter.h/.cpp. Changes:
-    - int32_t is 16 bit on the Mega2560, so every int32_t is int32_t here (Same as the shift algorithms)
-    - The adaptation maps (StoredMap) are not saved, they start from the UN52 defaults after
-      every reset (see stored_map.h)
+    - int is 16 bit on the Mega2560, so every int is int32_t here (Same as the shift algorithms)
+    - The adaptation maps are saved to the Mega's EEPROM (see stored_map.h and nvs/eeprom_impl.h)
 */
 
 class AbstractProfile;

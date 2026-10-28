@@ -131,7 +131,7 @@ PressureManager::PressureManager(SensorData* sensor_ptr, uint16_t max_torque) {
     /** Pressure PWM map (TCC) **/
     const int16_t pwm_tcc_x_headers[7] = {0, 2000, 4000, 5000, 7500, 10000, 15000};
     const int16_t pwm_tcc_y_headers[5] = {0, 30, 60, 90, 120};
-    tcc_pwm_map = new StoredMap(nullptr /* UN52 NVS_KEY_MAP_NAME_TCC_PWM, not saved */, TCC_PWM_MAP_SIZE, pwm_tcc_x_headers, pwm_tcc_y_headers, 7, 5, TCC_PWM_MAP);
+    tcc_pwm_map = new StoredMap("TCC_PWM" /* UN52 NVS_KEY_MAP_NAME_TCC_PWM, never changed here so not in EEPROM */, TCC_PWM_MAP_SIZE, pwm_tcc_x_headers, pwm_tcc_y_headers, 7, 5, TCC_PWM_MAP);
     if (this->tcc_pwm_map->init_status() != ESP_OK) {
         delete this->tcc_pwm_map;
         this->tcc_pwm_map = nullptr;

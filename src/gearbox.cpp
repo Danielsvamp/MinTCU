@@ -1226,6 +1226,13 @@ void Gearbox::controller_loop() {
         case ShifterPosition::MINUS:
             this->dec_gear_request();
             break;
+        case ShifterPosition::P:
+            // Same as UN52: moving into P with the parking lock engaged saves the TCC adaptation
+            // (UN52 also saves the shift adaptation and the profile here, MinTCU has neither)
+            if (1 == TCUIO::parking_lock()) {
+                this->tcc->save();
+            }
+            break;
         default:
             break;
         }

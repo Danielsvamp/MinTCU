@@ -11,12 +11,11 @@ typedef int esp_err_t;
 #endif
 
 /*
-    UN52 StoredMap is a map that is loaded from (and saved to) the ESP32 NVS, starting from the
-    firmware default map.
-
-    MinTCU has nowhere to save it yet (The Mega's EEPROM is not used), so this StoredMap always
-    starts from the default map, and changes (TCC adaptation) only last until the Mega is reset.
-    save_to_eeprom() does nothing. Same names as UN52.
+    UN52 StoredMap: a map that is loaded from (and saved to) the ESP32 NVS, starting from the
+    firmware default map. Same here, but saved to the Mega's EEPROM (nvs/eeprom_impl.h).
+    Only the maps listed in EEPROM_MAP_SLOTS (eeprom_impl.cpp) are saved, a map with a name that is
+    not listed (or nullptr) always starts from its default and save_to_eeprom() fails.
+    Same names as UN52.
 */
 class StoredMap : public LookupAllocMap {
     public:
@@ -30,9 +29,15 @@ class StoredMap : public LookupAllocMap {
             const int16_t* default_map
         );
         esp_err_t init_status() const { return this->init_state; }
-        esp_err_t save_to_eeprom(void) { return ESP_OK; }
+        /**
+         * @brief Save new map contents to EEPROM (This will mean next TCU load will use the new map)
+         * MinTCU: queued, EEPROM::poll() writes it in the background
+         */
+        esp_err_t save_to_eeprom(void);
     private:
         esp_err_t init_state = ESP_FAIL;
+        const char* data_name = nullptr;
+        uint16_t data_element_count = 0;
 };
 
 #endif

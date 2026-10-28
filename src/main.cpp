@@ -20,6 +20,7 @@
 #include <avr/wdt.h>
 #include "board_config.h"
 #include "gearbox.h"
+#include "nvs/eeprom_impl.h"
 #include "canbus/can_egs51.h"
 #include "canbus/can_egs52.h"
 #include "nvs/eeprom_config.h"
@@ -80,4 +81,6 @@ void loop() {
     wdt_reset();
     egs_can_hal->update();
     gearbox->controller_loop();
+    // Saved maps are written to EEPROM in the background, one byte at a time
+    EEPROM::poll();
 }

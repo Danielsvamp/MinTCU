@@ -11,13 +11,14 @@
 #include "common_structs_ops.h"
 #include "egs_calibration/calibration_structs.h"
 
-// UN52 NVS key names (MinTCU does not save the maps, so they are not needed)
-#define NVS_KEY_TCC_ADAPT_MAP_1 nullptr
-#define NVS_KEY_TCC_ADAPT_MAP_2 nullptr
-#define NVS_KEY_TCC_ADAPT_MAP_3 nullptr
-#define NVS_KEY_TCC_ADAPT_MAP_4 nullptr
-#define NVS_KEY_TCC_ADAPT_MAP_5 nullptr
-#define NVS_KEY_TCC_SLIP_TARGET_MAP nullptr
+// UN52 NVS key names (nvs/all_keys.h). The TCC adaptation maps are saved to EEPROM
+// (nvs/eeprom_impl.cpp), the slip target map is never written, so it is not saved
+#define NVS_KEY_TCC_ADAPT_MAP_1 "TCC_ADAPT_1_1"
+#define NVS_KEY_TCC_ADAPT_MAP_2 "TCC_ADAPT_1_2"
+#define NVS_KEY_TCC_ADAPT_MAP_3 "TCC_ADAPT_1_3"
+#define NVS_KEY_TCC_ADAPT_MAP_4 "TCC_ADAPT_1_4"
+#define NVS_KEY_TCC_ADAPT_MAP_5 "TCC_ADAPT_1_5"
+#define NVS_KEY_TCC_SLIP_TARGET_MAP "TCC_RPM_3"
 
 #define LOAD_SIZE TCC_SLIP_ADAPT_MAP_SIZE/5
 
