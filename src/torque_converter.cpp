@@ -8,6 +8,7 @@
 #include "tcu_maths.h"
 #include "tcu_maths_impl.h"
 #include "maps.h"
+#include "profiles.h"
 #include "common_structs_ops.h"
 #include "egs_calibration/calibration_structs.h"
 
@@ -146,6 +147,10 @@ uint16_t TorqueConverter::calculate_slip_target(SensorData* sensors) {
         targ_slip_pid = 0;
     } else {
         target = (int32_t)interpolate_linear_array(sensors->input_rpm, 5, SLIP_X_COAST, SLIP_Z_COAST);
+        // MinTCU: maximum engine braking in the profiles in coast_lock_profiles
+        if (this->profile_id < 8 && (TCC_CURRENT_SETTINGS.coast_lock_profiles & (1 << this->profile_id))) {
+            target = SLIP_V_WHEN_LOCKED;
+        }
     }
 
     TccReqState e_req = egs_can_hal->get_engine_tcc_override_request(100);
@@ -454,6 +459,7 @@ void TorqueConverter::update(GearboxGear curr_gear, GearboxGear targ_gear, Press
     if (this->timer_till_pid > 0) {
         this->timer_till_pid -= 1;
     }
+    this->profile_id = (nullptr != profile) ? profile->get_profile_id() : UINT8_MAX;
     // Pulling / Pushing check
     this->pulling = this->check_if_pulling(sensors);
 

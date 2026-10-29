@@ -36,8 +36,15 @@ The pressure part of UN52, garage shifts (N/P to D/R), automatic shifting with t
   - The TCC adaptation is saved to the Mega's EEPROM (instead of the ESP32 NVS) when the selector goes into P with the parking lock in, same as UN52. It is written in the background, one byte at a time and only bytes that changed (`src/nvs/eeprom_impl.cpp`). If the saved data is missing or broken (CRC), that gear starts from the UN52 default (0) again.
   - The TCC solenoid is on **pin 5** (Timer3). It is driven like UN52 (100 Hz, full on for up to 1.5 ms, then the 10 kHz hold PWM), with the times rounded to 100 us.
   - The EDC15 (EGS51) does not ask for the TCC to open, so that part is never used. It is not read on EGS52 yet either.
+  - Coasting: UN52 keeps an engaged converter slipping a little (70 rpm at 1000 rpm input, 40 rpm from 1500 to 3500, 10 rpm above 4000), and opens it below 1000 rpm input. MinTCU adds `coast_lock_profiles` (`TCC_MODULE_SETTINGS` in `src/nvs/module_settings.h`): in those profiles it stays locked (10 rpm target) on coast for maximum engine braking. Default: Agility, Manual and Race. Like UN52, a converter that is open when you lift off stays open.
 - Outside a shift SPC is at 0 mA (max pressure), like limp mode.
 - Failsafe: no calibration, engine off, torque frames missing for 200 ms, shifter missing, or battery outside 9-16 V -> MPC 0 mA = max pressure. It has to be OK for 1 s before it leaves failsafe. Watchdog resets the Mega if the loop hangs for 250 ms.
+- Limp mode (MinTCU, not in UN52): the same as failsafe (MPC/SPC 0 mA = max pressure, shift solenoids and TCC off, the gear is held). Failsafe flag `20`. It leaves limp 1 s after the fault is gone. Faults that cause it:
+  - N2 and N3 disagree by more than 100 rpm in 2nd/3rd/4th (UN52's sanity check), or N3 turns faster than 100 rpm in 1st/5th, for 1 s.
+  - With the output sensor: the ratio matches no gear for 1 s (a slipping clutch).
+  - A shift fails 3 times in a row.
+- Fault memory (MinTCU): every fault is saved to EEPROM, printed at boot (`Stored faults: 0x..`), and shown in the `faults` log column for the current drive. Send `C` over serial to clear it. Bits (`GearboxFault` in `src/gearbox.h`): 1 = N2/N3, 2 = shift failed 3 times, 4 = ratio/slip, 8 = wrong gear found (UN52's gear correction), 10 = ATF sensor open/short (not in P), 20 = CAN frames lost and back with the engine running, 40 = battery voltage out of range with the engine running.
+- No solenoid fault detection: that needs current sensing (UN52 measures solenoid current), MinTCU drives the solenoids open loop.
 
 ## Before the first test
 
@@ -65,7 +72,7 @@ python3 tools/egs_cal_gen.py egs_db.bin --egs 0305452032 --chassis 210.016 --gea
 
 ## Serial log (115200, 10 Hz, CSV)
 
-`ms,rpm,n2,n3,input_rpm,output_rpm,ratio,pedal,trq_sta,trq_drv,trq_in,shifter,gear,atf,vbatt,mpc_targ,mpc_corr,mpc_ma,mpc_ma_est,duty_permille,spc_ma,shift_sol,garage,shift,tcc,slip,prof,failsafe,can_ovf`
+`ms,rpm,n2,n3,input_rpm,output_rpm,ratio,pedal,trq_sta,trq_drv,trq_in,shifter,gear,atf,vbatt,mpc_targ,mpc_corr,mpc_ma,mpc_ma_est,duty_permille,spc_ma,shift_sol,garage,shift,tcc,slip,prof,faults,failsafe,can_ovf`
 
 - `output_rpm` ends with `e` when it is calculated (no output speed sensor), `ratio` is input/output speed (0 when stopped or in P/N)
 - `shift_sol` is the active shift circuits in hex: 1 = 1-2 (Y3), 2 = 2-3 (Y5), 4 = 3-4 (Y4), 8 = 4-5 (Y3)
@@ -73,7 +80,8 @@ python3 tools/egs_cal_gen.py egs_db.bin --egs 0305452032 --chassis 210.016 --gea
 - `shift` is `C<n>.<phase>` (crossover) or `R<n>.<phase>` (releasing) during an up/downshift, `n` is the UN52 `GearChange` (1 = 1-2, 2 = 2-3, 3 = 3-4, 4 = 4-5, 5 = 2-1, 6 = 3-2, 7 = 4-3, 8 = 5-4). Otherwise the last result: 0 = none yet, 1 = OK, 2 = failed, 3 = aborted
 - `tcc` is `O` (open) or `S` (slipping / locked) and the TCC pressure in mbar, `slip` is engine RPM - input RPM
 - `prof` is the profile letter (S C W A M R), with a `K` after it while kickdown is pressed
+- `faults` is the fault bits seen since the engine was started (see Limp mode / Fault memory above)
 - `gear` numbers are the UN52 `GearboxGear` enum (1 = 1st ... 5 = 5th, 8 = P, 9 = N, 10 = R1)
 - `atf` ends with `s` when the sensor is missing and 120 C is used for the pressure map
-- `failsafe` is hex bit flags: 1 = engine off, 2 = no torque, 4 = no shifter, 8 = recovering, 10 = no calibration
+- `failsafe` is hex bit flags: 1 = engine off, 2 = no torque, 4 = no shifter, 8 = recovering, 10 = no calibration, 20 = limp mode
 - `can_ovf` counts lost CAN frames, it should stay at 0

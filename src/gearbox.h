@@ -25,7 +25,22 @@ enum FailsafeReason : uint8_t {
     FS_NO_SHIFTER = 1 << 2,      // EWM_230 missing or implausible
     FS_RECOVERING = 1 << 3,      // Everything is OK again, waiting before leaving failsafe
     FS_NO_CAL = 1 << 4,          // No (valid) calibration compiled in, see tools/egs_cal_gen.py
+    FS_LIMP = 1 << 5,            // Limp mode while a gearbox fault (LIMP_FAULTS) is there
 };
+
+// MinTCU fault memory (Not in UN52). Bit flags, saved to EEPROM, printed at boot and in the log
+enum GearboxFault : uint8_t {
+    FAULT_NONE = 0,
+    FAULT_N2_N3 = 1 << 0,        // For 1s: N2 and N3 disagree in 2nd/3rd/4th (UN52 sanity check), or N3 turns in 1st/5th -> limp
+    FAULT_SHIFT = 1 << 1,        // 3 failed shifts in a row -> limp
+    FAULT_RATIO = 1 << 2,        // Ratio matches no gear for 1s (clutch slipping, output sensor only) -> limp
+    FAULT_WRONG_GEAR = 1 << 3,   // UN52's gear correction happened (In a different gear than commanded)
+    FAULT_ATF_SENSOR = 1 << 4,   // ATF temperature sensor open or shorted (Not in P), default temperature used
+    FAULT_CAN = 1 << 5,          // Torque or shifter frames lost (and back again) with the engine running
+    FAULT_VBATT = 1 << 6,        // Battery voltage outside min_batt_cc_mv..max_batt_cc_mv with the engine running
+};
+// Faults that put the gearbox in limp mode
+const uint8_t LIMP_FAULTS = FAULT_N2_N3 | FAULT_SHIFT | FAULT_RATIO;
 
 class Gearbox {
 public:
@@ -45,6 +60,8 @@ public:
     void inc_gear_request();
     void dec_gear_request();
     void set_profile(AbstractProfile* prof);
+    uint8_t get_stored_faults() const { return this->stored_faults; }
+    void clear_stored_faults();
 
 private:
     GearboxGear requested_gear_from_shifter();
@@ -154,6 +171,15 @@ private:
     uint8_t engine_running_off_counter = 0;
 
     uint8_t failsafe_reasons = FS_ENGINE_OFF;
+    void set_fault(uint8_t fault);
+    uint8_t faults = FAULT_NONE;         // Faults seen since the engine was started
+    uint8_t limp_faults = FAULT_NONE;    // Limp faults that are still there
+    uint8_t stored_faults = FAULT_NONE;  // Faults in EEPROM (All drives until cleared)
+    bool n2_n3_implausible = false;
+    uint8_t n2_n3_bad_cycles = 0;
+    uint8_t ratio_bad_cycles = 0;
+    uint8_t shift_fail_count = 0;
+    bool can_dropout = false;
     uint8_t failsafe_ok_cycles = 0;
     bool atf_substituted = false;
     bool cal_ok = false;

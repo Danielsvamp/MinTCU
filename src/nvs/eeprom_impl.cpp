@@ -184,3 +184,16 @@ esp_err_t EEPROM::ewm_btn_save_profile(uint8_t save_profile) {
     eeprom_update_byte((uint8_t*)(addr + 1), (uint8_t)~save_profile);
     return ESP_OK;
 }
+
+uint8_t EEPROM::read_fault_memory(void) {
+    uint16_t addr = last_profile_address() + 2;
+    uint8_t v = eeprom_read_byte((const uint8_t*)addr);
+    uint8_t inv = eeprom_read_byte((const uint8_t*)(addr + 1));
+    return ((uint8_t)~v == inv) ? v : 0;
+}
+
+void EEPROM::write_fault_memory(uint8_t faults) {
+    uint16_t addr = last_profile_address() + 2;
+    eeprom_update_byte((uint8_t*)addr, faults);
+    eeprom_update_byte((uint8_t*)(addr + 1), (uint8_t)~faults);
+}

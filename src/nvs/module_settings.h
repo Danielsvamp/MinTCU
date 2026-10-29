@@ -48,6 +48,10 @@ typedef struct {
     //
     // UNIT: Nm
     uint16_t tcc_max_trq_override;
+    // MinTCU (Not in UN52): profiles that keep the converter locked when coasting, for maximum
+    // engine braking. Bit per profile id (1 << GearboxProfile, Standard 0, Comfort 1, Winter 2,
+    // Agility 3, Manual 4, Race 5). The other profiles use the UN52 coast slip (SLIP_Z_COAST)
+    uint8_t coast_lock_profiles;
 
 } __attribute__ ((packed)) TCC_MODULE_SETTINGS;
 
@@ -64,6 +68,7 @@ const TCC_MODULE_SETTINGS TCC_DEFAULT_SETTINGS = {
     .prefill_pressure = 10000,
     .prefill_cycles = 10,
     .tcc_max_trq_override = 0,
+    .coast_lock_profiles = (1 << 3) | (1 << 4) | (1 << 5), // Agility, Manual, Race
 };
 
 // Solenoid settings

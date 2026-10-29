@@ -153,6 +153,7 @@ class TorqueConverter {
 
         bool was_stationary = true;
         uint16_t slip_target = 100;
+        uint8_t profile_id = UINT8_MAX; // MinTCU, for coast_lock_profiles
 
         uint8_t command_p_stage = 0;
         uint8_t timer_command_p = 0;

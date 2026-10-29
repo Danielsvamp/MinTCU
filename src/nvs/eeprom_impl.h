@@ -30,6 +30,12 @@ namespace EEPROM {
     esp_err_t ewm_btn_get_saved_profile(uint8_t* dest);
     esp_err_t ewm_btn_save_profile(uint8_t save_profile);
     /**
+     * @brief MinTCU fault memory (GearboxFault bits, not in UN52). Two bytes after the last profile
+     * (the faults and their inverse), written straight away. Nothing saved reads as no faults.
+     */
+    uint8_t read_fault_memory(void);
+    void write_fault_memory(uint8_t faults);
+    /**
      * @brief Call from loop(), writes the queued maps in the background
      */
     void poll(void);

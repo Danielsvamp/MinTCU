@@ -73,6 +73,7 @@ Gearbox::Gearbox()
     Profiles::init_profiles(VEHICLE_CONFIG.engine_type == 0);
     this->shifter = new ShifterEwm(&ETS_CURRENT_SETTINGS);
     this->set_profile(this->shifter->get_profile());
+    this->stored_faults = EEPROM::read_fault_memory();
     memset(&this->fwd, 0, sizeof(this->fwd));
 
     // Same as UN52
@@ -649,6 +650,7 @@ void Gearbox::end_fwd_shift(bool result) {
     if (result) { // Only set gear on conformation!
         this->actual_gear = gear_from_idx(f->sd.targ_g);
         this->last_motion_gear = this->actual_gear;
+        this->shift_fail_count = 0;
     }
     else {
         if (!is_shifter_in_valid_drive_pos(this->shifter_pos)) {
@@ -659,6 +661,13 @@ void Gearbox::end_fwd_shift(bool result) {
         else {
             // Shift failed!
             this->target_gear = this->actual_gear;
+            // MinTCU: 3 failed shifts in a row -> limp. An abort (failsafe, engine off) is not counted
+            if (2 == this->fwd_result) {
+                this->shift_fail_count++;
+                if (this->shift_fail_count >= 3) {
+                    this->set_fault(FAULT_SHIFT);
+                }
+            }
         }
     }
     pressure_manager->set_spc_p_max();
@@ -958,6 +967,22 @@ void Gearbox::end_garage_shift() {
     this->shifting = false;
 }
 
+// MinTCU fault memory. A new fault is written to EEPROM straight away (2 bytes, a few ms, only once
+// per fault until the memory is cleared)
+void Gearbox::set_fault(uint8_t fault) {
+    this->faults |= fault;
+    this->limp_faults |= (fault & LIMP_FAULTS);
+    if ((this->stored_faults | fault) != this->stored_faults) {
+        this->stored_faults |= fault;
+        EEPROM::write_fault_memory(this->stored_faults);
+    }
+}
+
+void Gearbox::clear_stored_faults() {
+    this->stored_faults = FAULT_NONE;
+    EEPROM::write_fault_memory(FAULT_NONE);
+}
+
 // Same as UN52 (No mutex, everything runs in loop())
 void Gearbox::set_profile(AbstractProfile* prof)
 {
@@ -988,10 +1013,20 @@ bool Gearbox::process_speed_sensors()
 
     if (UINT16_MAX != n2 && UINT16_MAX != n3) {
         uint16_t turbine = TCUIO::calc_turbine_rpm(n2, n3);
+        this->n2_n3_implausible = false;
         if (conduct_sanity_check) {
             if (abs((int32_t)n2 - (int32_t)n3) > 100) {
                 ok = false;
+                this->n2_n3_implausible = true;
             }
+        }
+        // MinTCU: N3 does not turn in 1st and 5th, so N3 turning there means the gearbox is not in
+        // the gear we think (Without an output sensor this is the only way to see a 1-2 or 4-5
+        // that did not happen). Same 100 RPM as the UN52 check above
+        if (gear_disagree_count == 0 && this->actual_gear == this->target_gear &&
+            (GearboxGear::First == this->actual_gear || GearboxGear::Fifth == this->actual_gear) &&
+            n3 > 100) {
+            this->n2_n3_implausible = true;
         }
         if (ok) {
             this->speed_sensors.turbine = turbine;
@@ -1144,7 +1179,18 @@ void Gearbox::controller_loop() {
         {
             if (is_fwd_gear(this->actual_gear))
             {
-                if (calcGearFromRatio(false) && this->est_gear_idx != 0)
+                bool ratio_ok = calcGearFromRatio(false) && this->est_gear_idx != 0;
+                // MinTCU: a ratio that matches no gear for 1 second (Same count as UN52's gear
+                // correction) means a clutch is slipping -> limp
+                if (ratio_ok) {
+                    this->ratio_bad_cycles = 0;
+                } else if (this->ratio_bad_cycles < 50) {
+                    this->ratio_bad_cycles++;
+                    if (this->ratio_bad_cycles >= 50) {
+                        this->set_fault(FAULT_RATIO);
+                    }
+                }
+                if (ratio_ok)
                 {
                     // Compare gears
                     GearboxGear estimate = gear_from_idx(this->est_gear_idx);
@@ -1157,6 +1203,7 @@ void Gearbox::controller_loop() {
                             this->target_gear = estimate;
                             this->last_motion_gear = estimate;
                             gear_disagree_count = 0;
+                            this->set_fault(FAULT_WRONG_GEAR);
                         }
                     }
                     else
@@ -1182,6 +1229,18 @@ void Gearbox::controller_loop() {
         }
         this->sensor_data.gear_ratio = 0.0;
         gear_disagree_count = 0;
+    }
+
+    // MinTCU: N2/N3 disagreeing for 1 second -> limp
+    if (this->n2_n3_implausible) {
+        if (this->n2_n3_bad_cycles < 50) {
+            this->n2_n3_bad_cycles++;
+            if (this->n2_n3_bad_cycles >= 50) {
+                this->set_fault(FAULT_N2_N3);
+            }
+        }
+    } else {
+        this->n2_n3_bad_cycles = 0;
     }
 
     // Pedal (Same as UN52)
@@ -1226,6 +1285,10 @@ void Gearbox::controller_loop() {
                 this->abort_shift();
             }
             this->last_motion_gear = GearboxGear::Second; // No pressure default
+            // MinTCU: the faults of this drive are cleared (The fault memory in EEPROM is kept)
+            this->faults = FAULT_NONE;
+            this->limp_faults = FAULT_NONE;
+            this->shift_fail_count = 0;
             this->actual_gear = GearboxGear::Neutral;
             this->target_gear = GearboxGear::Neutral;
         }
@@ -1242,6 +1305,10 @@ void Gearbox::controller_loop() {
     } else {
         this->sensor_data.atf_temp = ATF_FAILSAFE_TEMP_C;
         this->atf_substituted = true;
+        // The ATF line also reads open while the parking lock is in (UN52 sensors.cpp)
+        if (this->engine_running && 0 == TCUIO::parking_lock()) {
+            this->set_fault(FAULT_ATF_SENSOR);
+        }
     }
 
     // Kickdown (Same as UN52, from the EWM. MinTCU has no kickdown input pin)
@@ -1337,6 +1404,38 @@ void Gearbox::controller_loop() {
     }
     if (GearboxGear::SignalNotAvailable == requested) {
         reasons |= FS_NO_SHIFTER;
+    }
+    // Frames lost and back again with the engine running. (Switching the ignition off loses them
+    // too, but they do not come back)
+    if (reasons & (FS_NO_TORQUE | FS_NO_SHIFTER)) {
+        this->can_dropout = this->engine_running;
+    } else if (this->can_dropout) {
+        this->can_dropout = false;
+        if (this->engine_running) {
+            this->set_fault(FAULT_CAN);
+        }
+    }
+    if (this->engine_running) {
+        uint16_t mv = TCUIO::battery_mv();
+        if (UINT16_MAX == mv || mv < SOL_CURRENT_SETTINGS.min_batt_cc_mv || mv > SOL_CURRENT_SETTINGS.max_batt_cc_mv) {
+            this->set_fault(FAULT_VBATT);
+        }
+    }
+    // Limp mode while a limp fault is still there. Like the other reasons, it leaves failsafe once
+    // everything is OK for 1 second (FS_RECOVERING). A shift fault is cleared straight away (the
+    // 1 second recovery still applies), so the next shift is tried again
+    if (0 == this->n2_n3_bad_cycles) {
+        this->limp_faults &= ~FAULT_N2_N3;
+    }
+    if (0 == this->ratio_bad_cycles) {
+        this->limp_faults &= ~FAULT_RATIO;
+    }
+    if (this->limp_faults) {
+        reasons |= FS_LIMP;
+    }
+    if (this->limp_faults & FAULT_SHIFT) {
+        this->limp_faults &= ~FAULT_SHIFT;
+        this->shift_fail_count = 0;
     }
     if (FS_NONE != reasons) {
         this->failsafe_ok_cycles = 0;
@@ -1478,6 +1577,8 @@ void Gearbox::print_log() {
     if (this->sensor_data.kickdown_pressed) {
         Serial.print('K');
     }
+    Serial.print(',');
+    Serial.print(this->faults, HEX);
     Serial.print(',');
     Serial.print(this->failsafe_reasons, HEX);
     Serial.print(',');
