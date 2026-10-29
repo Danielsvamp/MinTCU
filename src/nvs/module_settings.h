@@ -387,7 +387,7 @@ typedef struct {
 
 const ETS_MODULE_SETTINGS ETS_DEFAULT_SETTINGS = {
     .trrs_has_profile_selector = true,
-    .ewm_selector_type = EwmSelectorType::Button,
+    .ewm_selector_type = EwmSelectorType::Switch, // MinTCU: Daniel's W210 EWM has the S/W switch (UN52 default: Button)
     .switch_profile_idx_top = SelectableGearboxProfile::Comfort,
     .switch_profile_idx_bottom = SelectableGearboxProfile::Standard,
     .slr_profile_idx_left = SelectableGearboxProfile::Comfort,

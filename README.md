@@ -21,9 +21,9 @@ The pressure part of UN52, garage shifts (N/P to D/R), automatic shifting with t
   - The maps are read straight from flash and are always the UN52 defaults (UN52 copies them into RAM so the config app can change them, that does not fit in the Mega's 8 KB RAM).
   - No brake pedal input (no BS_200 on the W124), so 'no upshift while braking' never happens.
   - Nothing is shown on the cluster (MinTCU never transmits).
-- Program selector, same as UN52 with the EWM (`src/shifter/`), set by `ETS_CURRENT_SETTINGS` in `src/nvs/module_settings.h` (UN52 defaults):
-  - `ewm_selector_type = Button` (default): each press of the program button goes to the next enabled profile. By default that is Standard and Manual (`ewm_enable_c/w/a/r` are false). The profile is saved to EEPROM when going into P (`ewm_save_profile`, not for M/R/W unless `ewm_save_profile_manual`), so the car starts in it next time. Before anything is saved it starts in `default_profile` (Standard) from `eeprom_config.cpp`.
-  - `ewm_selector_type = Switch`: the S/W (or S/C) switch on the selector, top = `switch_profile_idx_top` (Comfort), bottom = `switch_profile_idx_bottom` (Standard).
+- Program selector, same as UN52 with the EWM (`src/shifter/`), set by `ETS_CURRENT_SETTINGS` in `src/nvs/module_settings.h` (UN52 defaults, except the selector type):
+  - `ewm_selector_type = Button` (UN52 default): each press of the program button goes to the next enabled profile. By default that is Standard and Manual (`ewm_enable_c/w/a/r` are false). The profile is saved to EEPROM when going into P (`ewm_save_profile`, not for M/R/W unless `ewm_save_profile_manual`), so the car starts in it next time. Before anything is saved it starts in `default_profile` (Standard) from `eeprom_config.cpp`.
+  - `ewm_selector_type = Switch` (MinTCU default, the W210 selector has the S/W switch): top = `switch_profile_idx_top` (Comfort), bottom = `switch_profile_idx_bottom` (Standard). Either can be Standard, Comfort, Agility, Manual or Race (`SelectableGearboxProfile`, Winter is not selectable in UN52).
   - UN52 does not read the program button or switch for EGS51 cars. The EWM sends the same frame there, so MinTCU uses UN52's EGS52 code for both.
   - `prof` in the log shows the profile, so you can check which way round your switch is.
 - + / - on the EWM, same as UN52: in D asks for one gear up or down, in any profile. The shift is refused if the engine would go below 900 RPM (upshift) or above redline - 100 (downshift). The manual profile only downshifts on its own when the input speed is below 300 RPM with the pedal released, and upshifts at the redline. The UN52 crossover and releasing shift algorithms (`src/shifting_algo/`) run with the original shift calibration (SM06 for 210.016). Differences from UN52:
@@ -47,7 +47,7 @@ The pressure part of UN52, garage shifts (N/P to D/R), automatic shifting with t
 4. Check the calibration is for your gearbox (see below). Without one MinTCU stays in failsafe.
 5. Set `egs_can_type` and, once the output sensor is fitted, `input_sensor_pulses_per_rev` in `src/nvs/eeprom_config.cpp`.
 6. Put an ammeter in series with the MPC once and compare it with the `mpc_ma_est` column.
-7. If the selector has an S/W switch instead of a program button, set `ewm_selector_type = EwmSelectorType::Switch` in `ETS_DEFAULT_SETTINGS` (`src/nvs/module_settings.h`).
+7. Check which way round the S/W switch is with the `prof` log column, and pick the two profiles with `switch_profile_idx_top` / `switch_profile_idx_bottom` in `src/nvs/module_settings.h`.
 
 ## Calibration
 
