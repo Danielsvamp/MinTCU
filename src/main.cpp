@@ -63,7 +63,7 @@ void setup() {
 
     gearbox = new Gearbox(); // Also sets up the sensors (TCUIO::setup_io_layer)
     Serial.print(F("Calibration: "));
-    Serial.println(CAL_DESCRIPTION);
+    Serial.println((const __FlashStringHelper*)CAL_DESCRIPTION); // In flash
     if (!EGSCal::init_egs_calibration()) {
         Serial.println(F("NO VALID CALIBRATION, staying in failsafe (Run tools/egs_cal_gen.py)"));
     }

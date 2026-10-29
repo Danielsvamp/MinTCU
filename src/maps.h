@@ -31,8 +31,9 @@ extern const int16_t TCC_ADAPT_MAP_X[6];
 extern const int16_t TCC_ADAPT_MAP_Y[6];
 extern const int16_t TCC_ADAPT_MAP_Z[TCC_ADAPT_MAP_Z_SIZE];
 
-// Shift maps and shift time maps. These are in flash (TCU_FLASH), read them with LookupFlashMap
-// (Or pgm_read_word), never as a normal array.
+// All maps here except TCC_ADAPT_MAP_X/Y are in flash (TCU_FLASH). The shift maps are read with
+// LookupFlashMap, the others are copied into their map with data_in_flash = true. Never read them as
+// a normal array.
 #define SHIFT_MAP_SIZE 44
 extern const int16_t S_DIESEL_UPSHIFT_MAP[SHIFT_MAP_SIZE];
 extern const int16_t S_DIESEL_DOWNSHIFT_MAP[SHIFT_MAP_SIZE];

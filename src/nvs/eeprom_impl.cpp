@@ -2,6 +2,7 @@
 #include <avr/eeprom.h>
 #include <util/crc16.h>
 #include <string.h>
+#include <avr/pgmspace.h>
 
 // MinTCU EEPROM layout. Change EEPROM_LAYOUT_VERSION when the slots change, old data is then ignored
 static const uint8_t EEPROM_MAGIC_0 = 'M';
@@ -64,7 +65,7 @@ static bool header_ok() {
         eeprom_read_byte((uint8_t*)2) == EEPROM_LAYOUT_VERSION;
 }
 
-esp_err_t EEPROM::read_nvs_map_data(const char* map_name, int16_t* dest, const int16_t* default_map, size_t map_element_count) {
+esp_err_t EEPROM::read_nvs_map_data(const char* map_name, int16_t* dest, const int16_t* default_map, size_t map_element_count, bool default_in_flash) {
     if (nullptr == map_name || nullptr == dest || 0 == map_element_count) {
         return ESP_FAIL;
     }
@@ -85,7 +86,11 @@ esp_err_t EEPROM::read_nvs_map_data(const char* map_name, int16_t* dest, const i
         if (nullptr == default_map) {
             return ESP_FAIL;
         }
-        memcpy(dest, default_map, byte_count);
+        if (default_in_flash) {
+            memcpy_P(dest, default_map, byte_count);
+        } else {
+            memcpy(dest, default_map, byte_count);
+        }
     }
     return ESP_OK;
 }

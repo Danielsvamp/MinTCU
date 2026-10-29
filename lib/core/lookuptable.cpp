@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "tcu_maths_impl.h"
+#include <tcu_maths.h> // TCU_FLASH / avr/pgmspace.h
 
 // Lookup table base implementations
 
@@ -64,7 +65,7 @@ LookupAllocTable::LookupAllocTable(const int16_t *_xHeader, uint16_t _xHeaderSiz
 }
 
 // Same as UN52 (TCU_HEAP_ALLOC / TCU_FREE are malloc / free here)
-LookupAllocTable::LookupAllocTable(const int16_t *_xHeader, const uint16_t _xHeaderSize, const int16_t *_data, const uint16_t _dataSize)
+LookupAllocTable::LookupAllocTable(const int16_t *_xHeader, const uint16_t _xHeaderSize, const int16_t *_data, const uint16_t _dataSize, const bool data_in_flash)
 :LookupTable()
 {
     dataSize = _dataSize;
@@ -73,7 +74,14 @@ LookupAllocTable::LookupAllocTable(const int16_t *_xHeader, const uint16_t _xHea
     allocation_successful = (nullptr != data);
     if (allocation_successful)
     {
-        (void)memcpy(data, _data, dataSize*sizeof(int16_t));
+#ifdef __AVR__
+        if (data_in_flash) {
+            (void)memcpy_P(data, _data, dataSize*sizeof(int16_t));
+        } else
+#endif
+        {
+            (void)memcpy(data, _data, dataSize*sizeof(int16_t));
+        }
     }
     this->xHeader = new LookupAllocHeader(_xHeader, _xHeaderSize);
 }

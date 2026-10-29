@@ -20,7 +20,7 @@
     about 100000 writes per byte).
 */
 namespace EEPROM {
-    esp_err_t read_nvs_map_data(const char* map_name, int16_t* dest, const int16_t* default_map, size_t map_element_count);
+    esp_err_t read_nvs_map_data(const char* map_name, int16_t* dest, const int16_t* default_map, size_t map_element_count, bool default_in_flash = false);
     esp_err_t write_nvs_map_data(const char* map_name, const int16_t* to_write, size_t arr_size);
     /**
      * @brief Last profile of the EWM program button (Same as UN52, NVS key NVS_KEY_LAST_PROFILE).

@@ -151,8 +151,8 @@ float LookupMap::get_x_header_interpolated(const float value, const int16_t y) c
     return value1 + progress_between_targets(value, row[idvalue_min], row[idvalue_max]) * (value2 - value1);
 }
 
-LookupAllocMap::LookupAllocMap(const int16_t* _xHeader, const uint16_t _xHeaderSize, const int16_t* _yHeader, const uint16_t _yHeaderSize, const int16_t* _data, const uint16_t _dataSize) {
-    this->table = new LookupAllocTable(_xHeader, _xHeaderSize, _data, _dataSize);
+LookupAllocMap::LookupAllocMap(const int16_t* _xHeader, const uint16_t _xHeaderSize, const int16_t* _yHeader, const uint16_t _yHeaderSize, const int16_t* _data, const uint16_t _dataSize, const bool data_in_flash) {
+    this->table = new LookupAllocTable(_xHeader, _xHeaderSize, _data, _dataSize, data_in_flash);
     this->yHeader = new LookupAllocHeader(_yHeader, _yHeaderSize);
     this->yHeaderSize = _yHeaderSize;
 }

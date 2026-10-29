@@ -105,12 +105,27 @@ const uint8_t NUM_TEMP_POINTS = 27u;
 
 // Same table as UN52 board_config.h
 // https://www.nxp.com/docs/en/data-sheet/KTY83_SER.pdf
-const int16_t TFT_RESISTANCE_TAB[2][NUM_TEMP_POINTS] = {
+const int16_t TFT_RESISTANCE_TAB[2][NUM_TEMP_POINTS] TCU_FLASH = { // In flash
     // Resistance (Ohm)
     { 500,  525,  577,  632,  691,  754, 820,  889,  962, 1000, 1039, 1118, 1202, 1288, 1379, 1472, 1569, 1670, 1774, 1882, 1937, 1993, 2107, 2225, 2346, 2471, 2535},
     // Temperature (x10)
     {-550, -500, -400, -300, -200, -100,   0,  100,  200,  250,  300,  400,  500,  600,  700,  800,  900, 1000, 1100, 1200, 1250, 1300, 1400, 1500, 1600, 1700, 1750}
 };
+
+// Same as interpolate_linear_array (UN52) on TFT_RESISTANCE_TAB, reading the table from flash
+static float interpolate_tft_flash(int16_t v) {
+    int16_t x[NUM_TEMP_POINTS];
+    uint8_t i = 0;
+    for (i = 0; i < NUM_TEMP_POINTS; i++) {
+        x[i] = (int16_t)pgm_read_word(&TFT_RESISTANCE_TAB[0][i]);
+    }
+    uint16_t idx_min = 0;
+    uint16_t idx_max = 0;
+    search_value(v, x, NUM_TEMP_POINTS, &idx_min, &idx_max);
+    int16_t v1 = (int16_t)pgm_read_word(&TFT_RESISTANCE_TAB[1][idx_min]);
+    int16_t v2 = (int16_t)pgm_read_word(&TFT_RESISTANCE_TAB[1][idx_max]);
+    return interpolate((float)v1, (float)v2, x[idx_min], x[idx_max], v);
+}
 
 // A shorted sensor reads below this (Lowest table resistance is 500 Ohm)
 #define ATF_MIN_PLAUSIBLE_OHM 400
@@ -157,7 +172,7 @@ void Sensors::update(SensorDataRaw* dest) {
         int32_t resistance = (adc_voltage * ATF_PULLUP_OHM) / (ADC_VREF_MV - adc_voltage);
         if (resistance >= ATF_MIN_PLAUSIBLE_OHM) {
             resistance = MIN(resistance, (int32_t)INT16_MAX);
-            float out_x10 = interpolate_linear_array((int16_t)resistance, NUM_TEMP_POINTS, TFT_RESISTANCE_TAB[0], TFT_RESISTANCE_TAB[1]);
+            float out_x10 = interpolate_tft_flash((int16_t)resistance);
             dest->atf_temp_c = (int16_t)(out_x10 / 10.0);
         }
         // else: sensor shorted to ground, leave ATF as not available

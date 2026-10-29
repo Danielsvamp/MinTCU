@@ -26,7 +26,8 @@ class LookupTable {
 class LookupAllocTable: public LookupTable {
     public:
         LookupAllocTable(const int16_t* _xHeader, const uint16_t _xHeaderSize);
-        LookupAllocTable(const int16_t* _xHeader, const uint16_t _xHeaderSize, const int16_t* _data, const uint16_t _dataSize);
+        // MinTCU: data_in_flash = _data is in flash (TCU_FLASH), copied with memcpy_P
+        LookupAllocTable(const int16_t* _xHeader, const uint16_t _xHeaderSize, const int16_t* _data, const uint16_t _dataSize, const bool data_in_flash = false);
         ~LookupAllocTable(void);
         bool set_data(const int16_t* _data, uint16_t _dataSize);
         bool is_allocated(void) const;
