@@ -1,7 +1,7 @@
 /**
  * CANBUS abstraction layer, slimmed down from UN52 for the Mega2560 + MCP2515.
  *
- * Only the getters that the pressure path needs are here. Every getter takes an
+ * Only the getters that the pressure path needs, and the setters for the EGS51 GS_218 frame, are here. Every getter takes an
  * expire time, and returns the 'not available' value (UINT16_MAX, INT16_MAX, 0xFF, TORQUE_NDEF)
  * once the frame is older than that. The gearbox relies on this for its failsafes.
  */
@@ -119,6 +119,35 @@ class EgsBaseCan {
          * @brief Number of times the CAN controller ran out of RX buffers (Frames lost)
          */
         virtual uint16_t get_rx_overflow_count() { return 0; }
+
+        /**
+         * Setters (Same as UN52 can_hal.h, only the ones that go in the EGS51 GS_218 frame).
+         * They only change the frame, update() sends it.
+         */
+        // Set the gearbox clutch position on CAN
+        virtual void set_clutch_status(TccClutchStatus status){};
+        // Set the actual gear of the gearbox
+        virtual void set_actual_gear(GearboxGear actual){};
+        // Set the target gear of the gearbox
+        virtual void set_target_gear(GearboxGear target){};
+        // Sets shifter position message
+        virtual void set_shifter_position(ShifterPosition pos){};
+        // Sets gearbox is OK
+        virtual void set_gearbox_ok(bool is_ok){};
+        // Sets torque request toggle
+        virtual void set_torque_request(TorqueRequestControlType control_type, TorqueRequestBounds limit_type, float amount_nm){};
+        // Tells the engine if we are shifting from P->R or N->D.
+        // This is needed so the engine limits itself to 1K RPM, in order
+        // to prevent any damage to the box!
+        virtual void set_garage_shift_state(bool enable, bool to_d){};
+        virtual void set_tcc_trq_multiplier(float multi){};
+
+        /**
+         * @brief MinTCU (not in UN52): true once torque requests really go out on the bus (The CAN
+         * controller is out of listen-only mode). While false, the shift algorithms are told torque
+         * requests are off, so they make up for the torque that is not taken away.
+         */
+        virtual bool can_request_torque() { return false; }
 };
 
 extern EgsBaseCan* egs_can_hal;

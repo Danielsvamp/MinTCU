@@ -62,6 +62,8 @@ public:
     void set_profile(AbstractProfile* prof);
     uint8_t get_stored_faults() const { return this->stored_faults; }
     void clear_stored_faults();
+    void set_torque_request(TorqueRequestControlType ctrl_type, TorqueRequestBounds bounds, float amount);
+    OutputData output_data;
 
 private:
     GearboxGear requested_gear_from_shifter();

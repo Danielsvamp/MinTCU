@@ -3,7 +3,12 @@
 
 constexpr uint16_t Egs51Can::FILTERS[];
 
-Egs51Can::Egs51Can(uint8_t cs_pin, uint8_t int_pin) : McpCan(cs_pin, int_pin, FILTERS) {
+Egs51Can::Egs51Can(uint8_t cs_pin, uint8_t int_pin) : McpCan(cs_pin, int_pin, FILTERS, true) {
+    // Same start values as UN52
+    this->gs218.TORQUE_REQ = 0xFE;
+    this->gs218.bytes[7] = 0xFE;
+    this->gs218.bytes[4] = 0x48;
+    this->gs218.bytes[3] = 0x64;
 }
 
 uint8_t Egs51Can::import_frame(uint64_t data, uint16_t id, uint32_t now) {
@@ -31,8 +36,7 @@ uint8_t Egs51Can::get_pedal_value(const uint32_t expire_time_ms) {
     }
 }
 
-// Same as UN52 can_egs51.cpp. The torque freeze is not ported (MinTCU never requests torque, so
-// UN52's gs218.TORQUE_REQ_EN would always be false here)
+// Same as UN52 can_egs51.cpp
 CanTorqueData Egs51Can::get_torque_data(const uint32_t expire_time_ms) {
     CanTorqueData ret = TORQUE_NDEF;
     MS_310_EGS51 ms310;
@@ -77,7 +81,14 @@ CanTorqueData Egs51Can::get_torque_data(const uint32_t expire_time_ms) {
         int16_t driver_converted = m_esp;
         int16_t static_converted = ret.m_ind;
 
-        ret.m_converted_driver = driver_converted;
+        bool freeze = this->gs218.TORQUE_REQ_EN;
+        // Change torque values based on freezing or not
+        if (freeze) {
+            ret.m_converted_driver = MAX(driver_converted - this->req_static_torque_delta, static_converted);
+        } else {
+            this->req_static_torque_delta = driver_converted - static_converted;
+            ret.m_converted_driver = driver_converted;
+        }
         ret.m_converted_static = static_converted;
     }
     return ret;
@@ -120,4 +131,157 @@ bool Egs51Can::get_profile_btn_press(const uint32_t expire_time_ms) {
 
 ProfileSwitchPos Egs51Can::get_profile_switch_pos(const uint32_t expire_time_ms) {
     return ewm_profile_switch_pos(&this->ewm, this->seen(SEEN_EWM_230), expire_time_ms);
+}
+
+// Setters, same as UN52 can_egs51.cpp (The GS_418 parts are left out)
+
+void Egs51Can::set_clutch_status(TccClutchStatus status) {
+    switch(status) {
+        case TccClutchStatus::Open:
+            gs218.TCC_CLOSED = false;
+            gs218.TCC_OPEN = true;
+            gs218.TCC_SLIPPING = false;
+            break;
+        case TccClutchStatus::OpenToSlipping:
+            gs218.TCC_CLOSED = false;
+            gs218.TCC_OPEN = true;
+            gs218.TCC_SLIPPING = true;
+            break;
+        case TccClutchStatus::Slipping:
+            gs218.TCC_CLOSED = false;
+            gs218.TCC_OPEN = false;
+            gs218.TCC_SLIPPING = true;
+            break;
+        case TccClutchStatus::SlippingToClosed:
+            gs218.TCC_CLOSED = true;
+            gs218.TCC_OPEN = false;
+            gs218.TCC_SLIPPING = true;
+            break;
+        case TccClutchStatus::Closed:
+            gs218.TCC_CLOSED = true;
+            gs218.TCC_OPEN = false;
+            gs218.TCC_SLIPPING = false;
+            break;
+        default:
+            break;
+    }
+}
+
+void Egs51Can::set_actual_gear(GearboxGear actual) {
+    switch(actual) {
+        case GearboxGear::First:
+            this->gs218.GIC = GS_218h_GIC_EGS51::G_D1;
+            break;
+        case GearboxGear::Second:
+            this->gs218.GIC = GS_218h_GIC_EGS51::G_D2;
+            break;
+        case GearboxGear::Third:
+            this->gs218.GIC = GS_218h_GIC_EGS51::G_D3;
+            break;
+        case GearboxGear::Fourth:
+            this->gs218.GIC = GS_218h_GIC_EGS51::G_D4;
+            break;
+        case GearboxGear::Fifth:
+            this->gs218.GIC = GS_218h_GIC_EGS51::G_D5;
+            break;
+        case GearboxGear::Park:
+            this->gs218.GIC = GS_218h_GIC_EGS51::G_P;
+            break;
+        case GearboxGear::Neutral:
+            this->gs218.GIC = GS_218h_GIC_EGS51::G_N;
+            break;
+        case GearboxGear::Reverse_First:
+            this->gs218.GIC = GS_218h_GIC_EGS51::G_R;
+            break;
+        case GearboxGear::Reverse_Second:
+            this->gs218.GIC = GS_218h_GIC_EGS51::G_R2;
+            break;
+        case GearboxGear::SignalNotAvailable:
+        default:
+            this->gs218.GIC = GS_218h_GIC_EGS51::G_SNV;
+            break;
+    }
+}
+
+void Egs51Can::set_target_gear(GearboxGear target) {
+    switch(target) {
+        case GearboxGear::First:
+            this->gs218.GZC = GS_218h_GZC_EGS51::G_D1;
+            break;
+        case GearboxGear::Second:
+            this->gs218.GZC = GS_218h_GZC_EGS51::G_D2;
+            break;
+        case GearboxGear::Third:
+            this->gs218.GZC = GS_218h_GZC_EGS51::G_D3;
+            break;
+        case GearboxGear::Fourth:
+            this->gs218.GZC = GS_218h_GZC_EGS51::G_D4;
+            break;
+        case GearboxGear::Fifth:
+            this->gs218.GZC = GS_218h_GZC_EGS51::G_D5;
+            break;
+        case GearboxGear::Park:
+            this->gs218.GZC = GS_218h_GZC_EGS51::G_P;
+            break;
+        case GearboxGear::Neutral:
+            this->gs218.GZC = GS_218h_GZC_EGS51::G_N;
+            break;
+        case GearboxGear::Reverse_First:
+            this->gs218.GZC = GS_218h_GZC_EGS51::G_R;
+            break;
+        case GearboxGear::Reverse_Second:
+            this->gs218.GZC = GS_218h_GZC_EGS51::G_R2;
+            break;
+        case GearboxGear::SignalNotAvailable:
+        default:
+            this->gs218.GZC = GS_218h_GZC_EGS51::G_SNV;
+            break;
+    }
+}
+
+void Egs51Can::set_shifter_position(ShifterPosition pos) {
+    if (ShifterPosition::N == pos || ShifterPosition::P == pos) {
+        this->gs218.PN = true;
+    } else {
+        this->gs218.PN = false;
+    }
+}
+
+void Egs51Can::set_gearbox_ok(bool is_ok) {
+    this->gs218.GB_OK = is_ok;
+    this->gs218.LIMP_MODE = !is_ok;
+}
+
+void Egs51Can::set_torque_request(TorqueRequestControlType control_type, TorqueRequestBounds limit_type, float amount_nm) {
+    if (control_type == TorqueRequestControlType::None) {
+        this->gs218.TORQUE_REQ_EN = false;
+        this->gs218.SE = false;
+        this->gs218.TORQUE_REQ = 0xFE;
+    } else {
+        // Just enable the request
+        this->gs218.TORQUE_REQ_EN = true;
+        this->gs218.SE = true;
+        int32_t floor = MAX(0, (int32_t)(amount_nm/3.0F) + (this->drag_trq/3));
+        this->gs218.TORQUE_REQ = MIN(0xFD, floor);
+    }
+}
+
+void Egs51Can::set_garage_shift_state(bool enable, bool to_d) {
+    this->gs218.GARAGE_SHIFT = enable;
+}
+
+void Egs51Can::set_tcc_trq_multiplier(float multi) {
+    float clamped = MAX(100, MIN(254, multi*100));
+    gs218.TCC_MULTI = (uint8_t)clamped;
+}
+
+void Egs51Can::tx_frames() {
+    GS_218_EGS51 gs_218tx;
+    // Copy current CAN frame values to here so we don't
+    // accidentally modify parity calculations
+    gs_218tx = {gs218.raw};
+    // Now set CVN Counter (Increases every frame)
+    gs_218tx.FEHLER = cvn_counter;
+    cvn_counter++;
+    this->send_frame(GS_218_EGS51_CAN_ID, 6, gs_218tx.raw);
 }
