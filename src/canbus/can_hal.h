@@ -64,6 +64,24 @@ class EgsBaseCan {
         }
 
         /**
+         * @brief MANDITORY DATA (If no dedicated output shaft sensor) - Returns the rear right wheel speed (In half RPM increments)
+         * @param expire_time_ms data expiration period
+         * @return rear right wheel data
+         */
+        virtual uint16_t get_rear_right_wheel(const uint32_t expire_time_ms) {
+            return UINT16_MAX;
+        }
+
+        /**
+         * @brief MANDITORY DATA (If no dedicated output shaft sensor) - Returns the left right wheel speed (In half RPM increments)
+         * @param expire_time_ms data expiration period
+         * @return rear right left data
+         */
+        virtual uint16_t get_rear_left_wheel(const uint32_t expire_time_ms) {
+            return UINT16_MAX;
+        }
+
+        /**
          * @brief MANDITORY DATA - Returns the engines speed in RPM
          */
         virtual uint16_t get_engine_rpm(const uint32_t expire_time_ms) {
