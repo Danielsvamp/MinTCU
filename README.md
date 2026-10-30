@@ -1,7 +1,9 @@
 # MinTCU
 I need to shift
 
-Yes this code is borrowed from [ultimate-nag52-fw](https://github.com/rnd-ash/ultimate-nag52-fw) because it works well, I can use stock calibration data and I don't want to reinvent the wheel.
+MinTCU is a standalone gearbox controller (TCU) for the Mercedes 722.6 automatic, running on a plain Arduino Mega 2560. It is a port of [ultimate-nag52-fw](https://github.com/rnd-ash/ultimate-nag52-fw) (UN52), the open source EGS52 replacement, from the ESP32 to the Mega.
+
+Yes this code is borrowed from UN52 because it works well, I can use stock calibration data and I don't want to reinvent the wheel. The UN52 names, maps and defaults are kept as they are, and the calibration is the original Mercedes EGS data, so nothing in here is made up.
 
 I've never touched c++, I'm learning while doing, I'm realizing it takes a while
 
@@ -9,7 +11,205 @@ I've never touched c++, I'm learning while doing, I'm realizing it takes a while
 
 The vibecoding begins 😬
 
-## What runs right now
+> **Status: not tested on a car yet.** The firmware compiles and has only been run in a simulator (simavr) with fake sensors and CAN frames. It has not driven a real gearbox. Until it has, treat everything below as "should work", and be ready for the gearbox to sit in limp mode.
+
+## Contents
+
+- [What it is for](#what-it-is-for)
+- [What it does](#what-it-does)
+- [What you need](#what-you-need)
+- [Wiring](#wiring)
+- [The 722.6 gearbox plug](#the-7226-gearbox-plug)
+- [Build and flash](#build-and-flash)
+- [Set it up for your car](#set-it-up-for-your-car)
+- [Calibration](#calibration)
+- [Before the first test](#before-the-first-test)
+- [Using it](#using-it)
+- [Serial log](#serial-log-115200-10-hz-csv)
+- [How it works, in detail](#how-it-works-in-detail)
+- [Credits](#credits)
+
+## What it is for
+
+The car this is built for is a W124 that has been given:
+
+- a 722.634 gearbox (from a W210 with an EGS51 TCU, chassis/variant 210.016),
+- the W210 CAN selector lever (EWM) with the S/W switch,
+- the W210 EDC15C6 (CR2) engine ECU, from an EGS51 car.
+
+The W124 has no CAN of its own, so the EDC15 and the EWM are the only things on the bus. MinTCU reads them, drives the gearbox, and (with the EGS51 frames) sends the engine the gearbox frame with torque requests during shifts. Any car with a 722.6, an EWM and an engine ECU that sends the EGS51 or EGS52 CAN frames should be close, but you will need the calibration for your gearbox (see [Calibration](#calibration)) and you will have to check the settings for your car.
+
+## What it does
+
+- Reads engine torque, RPM, pedal and coolant temperature from the engine ECU over CAN (EGS51 or EGS52 frames).
+- Reads the selector, + / -, kickdown and the program switch (or button) from the EWM.
+- With the EGS51 frame set it sends GS_218 to the engine (gear, TCC state and the torque request during shifts), like UN52. It starts listen-only and only starts sending once it hears the car. With the EGS52 frame set it only listens. Nothing is sent to the cluster.
+- Reads the N2/N3 input speed sensors, the ATF temperature / park-neutral circuit, battery voltage and (optionally) an output speed sensor.
+- Line and shift pressure (MPC, SPC), garage shifts (P/N to D/R), automatic shifting with all six UN52 profiles, manual + / - shifts, torque converter lock-up (TCC) with adaptation saved to EEPROM.
+- Failsafe and limp mode, with a fault memory in EEPROM.
+- A 10 Hz CSV log on the USB serial port.
+
+What it does not do (yet):
+
+- No current sensing. The solenoids are driven open loop (the PWM duty is calculated, not measured), so there is no solenoid fault detection either.
+- No shift adaptation.
+- No brake input (the W124 has none on CAN).
+- No settings over CAN or a config app. Everything is set in the source and flashed.
+
+## What you need
+
+**Electronics**
+
+- Arduino Mega 2560 (a plain one, 5 V).
+- An MCP2515 CAN module (SPI). Check whether its crystal is 8 or 16 MHz.
+- One logic level low side MOSFET per solenoid, 6 in total: MPC, SPC, Y3, Y4, Y5 and TCC. Built and calculated with IRLB3034.
+- A flyback diode across each solenoid (1N5822, the duty calculation assumes it).
+- A 10k gate pull-down on each MOSFET, so the solenoids are off while the Mega resets. Off is the safe state: MPC/SPC at 0 mA is maximum pressure and the gearbox stays in its limp gear.
+- A battery voltage divider (100k / 22k, same as UN52) and a pull-up for the ATF sensor (2k).
+- Signal conditioning for N2, N3 and the output speed sensor. The Mega pins need a clean 0 / 5 V square wave and must never see more than 5 V.
+- Optional but recommended: an output speed sensor. The plan for this car is an inductive proximity sensor reading the bolt heads on the prop shaft flex disc. Without it, output speed is calculated from the input speed and the gear, and MinTCU can't tell if it is in the wrong gear.
+
+**Car side**
+
+- Engine ECU sending EGS51 frames (MS_310, MS_210, MS_308, MS_608) or EGS52 frames (MS_312, MS_212, MS_210, MS_308, MS_608).
+- An EWM selector (EWM_230 frame).
+- The 722.6 electrical plug: the solenoids, N2/N3 and the ATF temperature sensor (see [The 722.6 gearbox plug](#the-7226-gearbox-plug)).
+
+**Software**
+
+- [PlatformIO](https://platformio.org/) (VS Code extension or the `pio` command line). It downloads the AVR toolchain and the `autowp-mcp2515` library by itself.
+- Python 3, only if you need a different calibration.
+- A serial terminal at 115200 baud to read the log.
+
+## Wiring
+
+All of it is in `src/board_config.h`. Check it against your board before flashing.
+
+| Mega pin | Connects to | Notes |
+| --- | --- | --- |
+| 11 | MPC (modulating pressure) MOSFET gate | Timer1, must stay on 11 |
+| 12 | SPC (shift pressure) MOSFET gate | Timer1, must stay on 12 |
+| 6 | Y3 shift solenoid (1-2 / 4-5) MOSFET gate | Timer4 PWM |
+| 7 | Y4 shift solenoid (3-4) MOSFET gate | Timer4 PWM |
+| 8 | Y5 shift solenoid (2-3) MOSFET gate | Timer4 PWM |
+| 5 | TCC (torque converter) MOSFET gate | Timer3 |
+| 18 | N2 input speed sensor | 0 / 5 V, 60 pulses/rev |
+| 19 | N3 input speed sensor | 0 / 5 V, 60 pulses/rev |
+| 3 | Output speed sensor (optional) | 0 / 5 V |
+| A0 | ATF temperature sensor (and park/neutral) | 2k pull-up to 5 V |
+| A1 | Battery (solenoid supply) voltage | via 100k / 22k divider |
+| 53 | MCP2515 CS | |
+| 2 | MCP2515 INT | must be an interrupt pin |
+| 50 / 51 / 52 | MCP2515 SO / SI / SCK | the Mega's SPI pins |
+
+The solenoids are switched on their ground side: battery + to the solenoid, solenoid to the MOSFET drain, source to ground. The flyback diode goes across the solenoid (cathode to battery +).
+
+## The 722.6 gearbox plug
+
+From the ATSG 722.6 manuals (2004 and 2009 editions). The gearbox has one 13 pin round plug on the electrical conductor plate (pin 5 is not used). All six solenoids share battery + on pin 6, and the TCU switches each one to ground, which is exactly what the low side MOSFETs do.
+
+| Plug pin | EGS terminal | What it is | MinTCU | Check |
+| --- | --- | --- | --- | --- |
+| 6 | 38 | Battery + for all solenoids | switched 12 V (solenoid supply, also to the battery divider on A1) | battery voltage |
+| 2 | 36 | MPC (modulating pressure) solenoid, ground side | MOSFET on pin 11 | 5.5 Ω (2.5-6.5 Ω) to pin 6 |
+| 10 | 37 | SPC (shift pressure) solenoid, ground side | MOSFET on pin 12 | 5.5 Ω (2.5-6.5 Ω) to pin 6 |
+| 13 | 14 | Y3, 1-2 / 4-5 shift solenoid, ground side | MOSFET on pin 6 | 4.5 Ω (2.5-6.5 Ω) to pin 6 |
+| 9 | 15 | Y4, 3-4 shift solenoid, ground side | MOSFET on pin 7 | 4.5 Ω (2.5-6.5 Ω) to pin 6 |
+| 8 | 16 | Y5, 2-3 shift solenoid, ground side | MOSFET on pin 8 | 4.5 Ω (2.5-6.5 Ω) to pin 6 |
+| 11 | 17 | TCC (PWM lock-up) solenoid, ground side | MOSFET on pin 5 | 2.7 Ω (2.0-4.0 Ω) to pin 6 |
+| 7 | 13 | N2/N3 sensor supply | see below | 5 V (2009 manual), 4-8 V (2004 manual) |
+| 3 | 12 | N2 signal | pin 18 (conditioned) | pulses |
+| 1 | 35 | N3 signal | pin 19 (conditioned) | pulses |
+| 4 | 34 | ATF temperature sensor in series with the park/neutral contact | A0, with the pull-up | see below |
+| 12 | 33 | Sensor ground (N2, N3, ATF) | Mega GND | 0.01 V or less to ground |
+| 5 | | not used | | |
+
+"EGS terminal" is the pin on the original TCU's plug, handy when you tap into the car's harness instead of making a new one. The two manuals list different wire colours for the same pins, so go by the pin numbers, not the colours. The resistances are measured between pin 6 and the solenoid's pin, with the plug off. The first number is the 2004 manual's nominal value, the range is from the 2009 manual. The harness adds to it, which is why `cc_reference_resistance` should be measured at the TCU end.
+
+- **N2 / N3** are Hall effect sensors. N2 reads the front sun gear and N3 the front planetary carrier, so they read the same speed in 2nd, 3rd and 4th only. N3 reads nothing useful in 1st and 5th, and N2 nothing in reverse. That is why MinTCU (like UN52) only compares them in 2nd-4th. What the signal looks like (open collector or a driven output) is not in the manuals, so check it with a scope or meter before you design the conditioning.
+- **ATF sensor and park/neutral contact**: the sensor (a PTC, about 1 kΩ at 25 °C) is in series with a reed contact that opens in P and N. So in P/N pin 4 reads open (MinTCU sees that as the parking lock, `ATF_PLL_OPEN_ADC`), and the temperature can only be read in R or D. The ATSG table (564 Ω at -40 °C, 957 Ω at 20 °C, 1450 Ω at 80 °C, 1855 Ω at 120 °C) is within about 2 % of the KTY83 table MinTCU uses from UN52, so the reading should be within a couple of degrees.
+- **Original EGS limp mode**, for comparison: on an electrical fault it holds the current gear until the car stops and the engine has been off for 10 s, then gives 2nd (hydraulic). On a mechanical/hydraulic fault it gives 3rd. Reverse always works. MinTCU's own limp mode is different, see [How it works](#how-it-works-in-detail).
+
+## Build and flash
+
+1. Install PlatformIO and open this folder.
+2. Plug in the Mega and run `pio run -t upload` (or Upload in VS Code). The environment is `megaatmega2560` in `platformio.ini`.
+3. Open the serial monitor with `pio device monitor` (115200 baud is set in `platformio.ini`).
+
+It has been compiled with avr-gcc and the Arduino core directly, but not yet with PlatformIO itself, so please report it if `pio run` fails. It uses about 92 KB of flash and 2.7 KB of the Mega's 8 KB RAM.
+
+## Set it up for your car
+
+Everything is set in the source. These are the places to look:
+
+- `src/board_config.h`: pins, the MCP2515 crystal (`CAN_CRYSTAL`), the real 5 V of your board (`ADC_VREF_MV`), the battery divider and the ATF pull-up.
+- `src/nvs/eeprom_config.cpp` (`VEHICLE_CONFIG`, UN52 names):
+  - `egs_can_type`: 1 = EGS51 frames, 2 = EGS52 frames. Default 1 (EDC15C6 from an EGS51 car).
+  - `engine_type`: 0 = diesel, 1 = petrol. Picks the shift maps and the redline (`red_line_rpm_diesel` / `red_line_rpm_petrol`).
+  - `input_sensor_pulses_per_rev`: pulses per revolution of your output speed sensor. Leave it at 0 until the sensor is fitted.
+  - `diff_ratio`, `wheel_circumference`, `engine_drag_torque`: the UN52 defaults, change them for your car.
+  - `default_profile`: the profile used before one has been saved.
+- `src/nvs/module_settings.h`:
+  - `cc_reference_resistance`: the MPC/SPC solenoid + harness resistance (measure it at the TCU plug).
+  - `ewm_selector_type`: `Switch` for an EWM with the S/W switch (default here), `Button` for one with the program button.
+  - `switch_profile_idx_top` / `switch_profile_idx_bottom`: the profiles for the two switch positions (default Comfort / Standard).
+  - `coast_lock_profiles`: the profiles where the torque converter stays locked when you lift off, for engine braking (default Agility, Manual, Race).
+
+## Calibration
+
+The calibration is the original EGS data from the UN52 config app database (`egs_db.bin` in
+[ultimate-nag52-config-app](https://github.com/rnd-ash/ultimate-nag52-config-app)). Nothing is typed in by hand,
+`tools/egs_cal_gen.py` writes `src/egs_calibration/calibration_data.cpp` from it.
+
+The one in the repo is for chassis 210.016 with a 722.634 (hydraulic STDP, mechanical var7, converter 0000).
+All EGS part numbers for that chassis/gearbox in the database use the same data. For another car:
+
+```
+python3 tools/egs_cal_gen.py egs_db.bin --list --gearbox 722.634      # what is in the database
+python3 tools/egs_cal_gen.py egs_db.bin --egs 0305452032 --chassis 210.016 --gearbox 722.634
+```
+
+Without a valid calibration MinTCU stays in failsafe (flag `10` in the log).
+
+## Before the first test
+
+1. Check the pins and constants at the top of `src/board_config.h` (MCP2515 CS/INT, crystal, ADC reference, battery divider, ATF pull-up).
+2. Every solenoid MOSFET needs a flyback diode across the solenoid and a 10k gate pull-down, so a reset means 0 mA.
+3. Measure the MPC solenoid + harness resistance at the TCU plug and put it in `cc_reference_resistance` (`src/nvs/module_settings.h`).
+4. Check the calibration is for your gearbox (see above). Without one MinTCU stays in failsafe.
+5. Set `egs_can_type` and, once the output sensor is fitted, `input_sensor_pulses_per_rev` in `src/nvs/eeprom_config.cpp`.
+6. Put an ammeter in series with the MPC once and compare it with the `mpc_ma_est` column.
+7. Check which way round the S/W switch is with the `prof` log column, and pick the two profiles with `switch_profile_idx_top` / `switch_profile_idx_bottom` in `src/nvs/module_settings.h`.
+8. Check each solenoid's resistance at the gearbox plug against [the table above](#the-7226-gearbox-plug) before connecting MinTCU.
+9. First drive: watch the log. `failsafe` should be `0` with the engine running, and N2/N3 should agree in 2nd, 3rd and 4th. During a shift with a value in `trq_req`, `trq_sta` should drop, which shows the EDC15 acts on the torque request.
+
+## Using it
+
+- **D / R**: select them with the car stopped. Without an output speed sensor MinTCU can't see that the car is still rolling. D starts in 2nd and the profile shifts from there.
+- **S/W switch** (or program button): picks the profile. The `prof` column shows which one is active.
+- **+ / -**: one gear up or down, in any profile. It refuses a shift that would put the engine under 900 RPM or over the redline.
+- **Kickdown**: asks for a downshift.
+- **Faults**: stored faults are printed at boot (`Stored faults: 0x..`). Send `C` over the serial port to clear them. See [Fault memory](#how-it-works-in-detail) for the bits.
+- **Failsafe / limp**: if something is wrong (no CAN, no calibration, bad sensors, battery out of range) the solenoids go to maximum pressure and the gear is held. It comes back by itself 1 s after the problem is gone.
+
+## Serial log (115200, 10 Hz, CSV)
+
+`ms,rpm,n2,n3,input_rpm,output_rpm,ratio,pedal,trq_sta,trq_drv,trq_in,shifter,gear,atf,vbatt,mpc_targ,mpc_corr,mpc_ma,mpc_ma_est,duty_permille,spc_ma,shift_sol,garage,shift,tcc,slip,trq_req,prof,faults,failsafe,can_ovf`
+
+- `output_rpm` ends with `e` when it is calculated (no output speed sensor), `ratio` is input/output speed (0 when stopped or in P/N)
+- `shift_sol` is the active shift circuits in hex: 1 = 1-2 (Y3), 2 = 2-3 (Y5), 4 = 3-4 (Y4), 8 = 4-5 (Y3)
+- `garage` is `S<stage>.<substage>` during a garage shift, otherwise the last result: 0 = none yet, 1 = OK, 2 = aborted, 3 = skipped (no input speed)
+- `shift` is `C<n>.<phase>` (crossover) or `R<n>.<phase>` (releasing) during an up/downshift, `n` is the UN52 `GearChange` (1 = 1-2, 2 = 2-3, 3 = 3-4, 4 = 4-5, 5 = 2-1, 6 = 3-2, 7 = 4-3, 8 = 5-4). Otherwise the last result: 0 = none yet, 1 = OK, 2 = failed, 3 = aborted
+- `tcc` is `O` (open) or `S` (slipping / locked) and the TCC pressure in mbar, `slip` is engine RPM - input RPM
+- `trq_req` is the torque the engine is asked for (Nm, same scale as `trq_sta`), empty when there is no request, `L` while the CAN controller is listen-only
+- `prof` is the profile letter (S C W A M R), with a `K` after it while kickdown is pressed
+- `faults` is the fault bits seen since the engine was started (see Limp mode / Fault memory above)
+- `gear` numbers are the UN52 `GearboxGear` enum (1 = 1st ... 5 = 5th, 8 = P, 9 = N, 10 = R1)
+- `atf` ends with `s` when the sensor is missing and 120 C is used for the pressure map
+- `failsafe` is hex bit flags: 1 = engine off, 2 = no torque, 4 = no shifter, 8 = recovering, 10 = no calibration, 20 = limp mode
+- `can_ovf` counts lost CAN frames, it should stay at 0
+
+## How it works, in detail
 
 The pressure part of UN52, garage shifts (N/P to D/R), automatic shifting with the UN52 profiles, and + / - on the selector:
 
@@ -54,43 +254,9 @@ The pressure part of UN52, garage shifts (N/P to D/R), automatic shifting with t
 - Fault memory (MinTCU): every fault is saved to EEPROM, printed at boot (`Stored faults: 0x..`), and shown in the `faults` log column for the current drive. Send `C` over serial to clear it. Bits (`GearboxFault` in `src/gearbox.h`): 1 = N2/N3, 2 = shift failed 3 times, 4 = ratio/slip, 8 = wrong gear found (UN52's gear correction), 10 = ATF sensor open/short (not in P), 20 = CAN frames lost and back with the engine running, 40 = battery voltage out of range with the engine running.
 - No solenoid fault detection: that needs current sensing (UN52 measures solenoid current), MinTCU drives the solenoids open loop.
 
-## Before the first test
+## Credits
 
-1. Check the pins and constants at the top of `src/board_config.h` (MCP2515 CS/INT, crystal, ADC reference, battery divider, ATF pull-up). The TCC solenoid is on pin 5 (it was 13).
-2. Every solenoid MOSFET needs a flyback diode across the solenoid and a 10k gate pull-down, so a reset means 0 mA.
-3. Measure the MPC solenoid + harness resistance at the TCU plug and put it in `cc_reference_resistance` (`src/nvs/module_settings.h`).
-4. Check the calibration is for your gearbox (see below). Without one MinTCU stays in failsafe.
-5. Set `egs_can_type` and, once the output sensor is fitted, `input_sensor_pulses_per_rev` in `src/nvs/eeprom_config.cpp`.
-6. Put an ammeter in series with the MPC once and compare it with the `mpc_ma_est` column.
-7. Check which way round the S/W switch is with the `prof` log column, and pick the two profiles with `switch_profile_idx_top` / `switch_profile_idx_bottom` in `src/nvs/module_settings.h`.
-
-## Calibration
-
-The calibration is the original EGS data from the UN52 config app database (`egs_db.bin` in
-[ultimate-nag52-config-app](https://github.com/rnd-ash/ultimate-nag52-config-app)). Nothing is typed in by hand,
-`tools/egs_cal_gen.py` writes `src/egs_calibration/calibration_data.cpp` from it.
-
-The one in the repo is for chassis 210.016 with a 722.634 (hydraulic STDP, mechanical var7, converter 0000).
-All EGS part numbers for that chassis/gearbox in the database use the same data. For another car:
-
-```
-python3 tools/egs_cal_gen.py egs_db.bin --list --gearbox 722.634      # what is in the database
-python3 tools/egs_cal_gen.py egs_db.bin --egs 0305452032 --chassis 210.016 --gearbox 722.634
-```
-
-## Serial log (115200, 10 Hz, CSV)
-
-`ms,rpm,n2,n3,input_rpm,output_rpm,ratio,pedal,trq_sta,trq_drv,trq_in,shifter,gear,atf,vbatt,mpc_targ,mpc_corr,mpc_ma,mpc_ma_est,duty_permille,spc_ma,shift_sol,garage,shift,tcc,slip,trq_req,prof,faults,failsafe,can_ovf`
-
-- `output_rpm` ends with `e` when it is calculated (no output speed sensor), `ratio` is input/output speed (0 when stopped or in P/N)
-- `shift_sol` is the active shift circuits in hex: 1 = 1-2 (Y3), 2 = 2-3 (Y5), 4 = 3-4 (Y4), 8 = 4-5 (Y3)
-- `garage` is `S<stage>.<substage>` during a garage shift, otherwise the last result: 0 = none yet, 1 = OK, 2 = aborted, 3 = skipped (no input speed)
-- `shift` is `C<n>.<phase>` (crossover) or `R<n>.<phase>` (releasing) during an up/downshift, `n` is the UN52 `GearChange` (1 = 1-2, 2 = 2-3, 3 = 3-4, 4 = 4-5, 5 = 2-1, 6 = 3-2, 7 = 4-3, 8 = 5-4). Otherwise the last result: 0 = none yet, 1 = OK, 2 = failed, 3 = aborted
-- `tcc` is `O` (open) or `S` (slipping / locked) and the TCC pressure in mbar, `slip` is engine RPM - input RPM
-- `trq_req` is the torque the engine is asked for (Nm, same scale as `trq_sta`), empty when there is no request, `L` while the CAN controller is listen-only
-- `prof` is the profile letter (S C W A M R), with a `K` after it while kickdown is pressed
-- `faults` is the fault bits seen since the engine was started (see Limp mode / Fault memory above)
-- `gear` numbers are the UN52 `GearboxGear` enum (1 = 1st ... 5 = 5th, 8 = P, 9 = N, 10 = R1)
-- `atf` ends with `s` when the sensor is missing and 120 C is used for the pressure map
-- `failsafe` is hex bit flags: 1 = engine off, 2 = no torque, 4 = no shifter, 8 = recovering, 10 = no calibration, 20 = limp mode
-- `can_ovf` counts lost CAN frames, it should stay at 0
+- [ultimate-nag52-fw](https://github.com/rnd-ash/ultimate-nag52-fw) by rnd-ash and contributors: almost all of the gearbox logic, names and defaults.
+- [ultimate-nag52-config-app](https://github.com/rnd-ash/ultimate-nag52-config-app): the `egs_db.bin` calibration database.
+- [autowp-mcp2515](https://github.com/autowp/arduino-mcp2515): the MCP2515 driver.
+- Much of the port to the Mega was written with Claude (Claude Code), as UN52's AI policy asks to be stated.
