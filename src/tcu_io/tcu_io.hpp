@@ -41,9 +41,12 @@ namespace TCUIO {
     // UINT16_MAX if not available
     uint16_t n2_rpm();
     uint16_t n3_rpm();
-    // UINT16_MAX if not available (No dedicated output sensor configured. UN52 then uses the
-    // rear wheel speeds from CAN, MinTCU does not, a W124 has no wheel speeds on CAN)
+    // UINT16_MAX if not available. Without a dedicated output sensor it comes from the rear wheel
+    // speeds on CAN (Same as UN52, only the EGS51 layer has them, a W124 has no wheel speeds on CAN)
     uint16_t output_rpm();
+    // Rear wheel speeds from CAN, in half RPM. UINT16_MAX if not available
+    uint16_t wheel_rl_2x_rpm();
+    uint16_t wheel_rr_2x_rpm();
     // INT16_MAX if not available
     int16_t motor_temperature();
 };

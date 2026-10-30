@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generates src/egs_calibration/calibration_data.cpp from the UN52 config app calibration database
+Generates src/cars/<car>/calibration_data.cpp from the UN52 config app calibration database
 (egs_db.bin from https://github.com/rnd-ash/ultimate-nag52-config-app). No values are typed in by hand.
 
 egs_db.bin is LZ4 (raw block) compressed bincode (legacy config) of CalibrationDatabase,
@@ -10,8 +10,9 @@ Usage:
   List what is in the database for a chassis (and/or gearbox):
     python3 tools/egs_cal_gen.py egs_db.bin --list --chassis 210.026
     python3 tools/egs_cal_gen.py egs_db.bin --list --gearbox 722.626
-  Generate the calibration for one EGS part number + chassis (+ gearbox if the pair has more than one):
-    python3 tools/egs_cal_gen.py egs_db.bin --egs 0305452032 --chassis 210.026
+  Generate the calibration for one EGS part number + chassis (+ gearbox if the pair has more than one)
+  into the folder of a car (src/cars/<car>/, one PlatformIO environment per car, see platformio.ini):
+    python3 tools/egs_cal_gen.py egs_db.bin --egs 0305452032 --chassis 210.026 --car w210_026
 """
 import argparse
 import os
@@ -208,8 +209,11 @@ def main():
     ap.add_argument('--egs', help='EGS part number, eg 0305452032')
     ap.add_argument('--chassis', help='eg 210.026')
     ap.add_argument('--gearbox', help='eg 722.626')
-    ap.add_argument('--out', default=os.path.join(os.path.dirname(__file__), '..', 'src', 'egs_calibration', 'calibration_data.cpp'))
+    ap.add_argument('--car', help='car folder in src/cars, eg w124_210_016. Writes src/cars/<car>/calibration_data.cpp')
+    ap.add_argument('--out', help='output file, instead of --car')
     a = ap.parse_args()
+    if a.car and not a.out:
+        a.out = os.path.join(os.path.dirname(__file__), '..', 'src', 'cars', a.car, 'calibration_data.cpp')
     db = load_db(a.egs_db)
 
     rows = []
@@ -233,6 +237,8 @@ def main():
             print('Nothing found')
         return
 
+    if not a.out:
+        sys.exit('Give --car (or --out) to say where the calibration goes')
     if len(rows) != 1:
         sys.exit('%d entries match, narrow it down with --chassis / --gearbox (use --list)' % len(rows))
     pn, c = rows[0]
@@ -246,7 +252,7 @@ def main():
 // Source: UN52 config app egs_db.bin
 // EGS: %s, chassis: %s, gearbox: %s
 // Hydraulic: %s, mechanical: %s, torque converter: %s, shift algorithm: %s
-#include "calibration_structs.h"
+#include "../../egs_calibration/calibration_structs.h"
 #include <avr/pgmspace.h>
 
 static_assert(sizeof(ShiftAlgorithmPack) == %d, "ShiftAlgorithmPack layout does not match egs_db.bin");
@@ -269,6 +275,7 @@ const char CAL_DESCRIPTION[] PROGMEM = "EGS %s %s %s hydr %s mech %s tcc %s shif
        c_struct('MechanicalCalibration', 'MECH_CAL', mech),
        c_struct('TorqueConverterCalibration', 'TCC_CAL', tcc),
        c_struct('ShiftAlgorithmPack', 'SHIFT_ALGO_CAL', shift, flash=True))
+    os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     with open(a.out, 'w') as f:
         f.write(src)
     print('Wrote %s (%s)' % (os.path.normpath(a.out), 'EGS %s %s %s' % (pn, c['chassis'], c['gearbox'])))

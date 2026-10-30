@@ -23,6 +23,31 @@ uint8_t Egs51Can::import_frame(uint64_t data, uint16_t id, uint32_t now) {
         }
     } else if (this->ewm.import_frames(data, id, now)) {
         ret = SEEN_EWM_230;
+    } else if (BS_208_EGS51_CAN_ID == id && this->esp51.import_frames(data, id, now)) {
+        ret = SEEN_BS_208;
+    }
+    return ret;
+}
+
+// Same as UN52 can_egs51.cpp
+uint16_t Egs51Can::get_rear_right_wheel(const uint32_t expire_time_ms) {
+    BS_208_EGS51 bs208;
+    uint16_t ret = UINT16_MAX;
+    if (this->seen(SEEN_BS_208) && this->esp51.get_BS_208(GET_CLOCK_TIME(), expire_time_ms, &bs208)) {
+        if (0x3FFF != bs208.DHR) {
+            ret = bs208.DHR;
+        }
+    }
+    return ret;
+}
+
+uint16_t Egs51Can::get_rear_left_wheel(const uint32_t expire_time_ms) {
+    BS_208_EGS51 bs208;
+    uint16_t ret = UINT16_MAX;
+    if (this->seen(SEEN_BS_208) && this->esp51.get_BS_208(GET_CLOCK_TIME(), expire_time_ms, &bs208)) {
+        if (0x3FFF != bs208.DHL) {
+            ret = bs208.DHL;
+        }
     }
     return ret;
 }

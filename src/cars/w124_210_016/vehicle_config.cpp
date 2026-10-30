@@ -1,7 +1,7 @@
-#include "eeprom_config.h"
+#include "../../nvs/eeprom_config.h"
 
 // UN52's defaults (nvs/eeprom_config.cpp, used when no SCN config is stored), except where it says MinTCU.
-// Fill in for your car.
+// Daniel's W124 with the W210 E270 CDI (210.016) EDC15C6, EWM and 722.634.
 TCM_CORE_CONFIG VEHICLE_CONFIG = {
     .deprecated_is_large_nag = 0,
     .diff_ratio = 1000,

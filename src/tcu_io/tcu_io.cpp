@@ -5,6 +5,7 @@
 
 #include "tcu_io.hpp"
 #include "sensors.h"
+#include "nvs/eeprom_config.h"
 #include <tcu_maths.h>
 
 // How many 20ms cycles a sensor may be missing before it is reported as not available
@@ -22,6 +23,10 @@ TCUIO::SmoothedSensor smoothed_sensor_vbatt;
 
 TCUIO::OnePollSensor<uint8_t> onepoll_parking_lock;
 TCUIO::OnePollSensor<int16_t> onepoll_motor_temperature;
+TCUIO::OnePollSensor<uint16_t> onepoll_rr_speed;
+TCUIO::OnePollSensor<uint16_t> onepoll_rl_speed;
+
+float DIFF_RATIO_F = 1.0;
 
 SensorDataRaw raw_sensors;
 
@@ -104,6 +109,10 @@ bool TCUIO::setup_io_layer() {
     init_smoothed_sensor(&smoothed_sensor_vbatt, 12, 12000); // 250ms/20ms
     init_onepoll<uint8_t>(&onepoll_parking_lock, UINT8_MAX);
     init_onepoll<int16_t>(&onepoll_motor_temperature, INT16_MAX);
+    init_onepoll<uint16_t>(&onepoll_rl_speed, UINT16_MAX);
+    init_onepoll<uint16_t>(&onepoll_rr_speed, UINT16_MAX);
+
+    DIFF_RATIO_F = (float)VEHICLE_CONFIG.diff_ratio / 1000.0;
     return ret;
 }
 
@@ -133,9 +142,42 @@ void update_tft_sensor() {
 void update_rpm_sensors() {
     add_to_smoothed_sensor(&smoothed_sensor_n2_rpm, raw_sensors.rpm_n2, UINT16_MAX);
     add_to_smoothed_sensor(&smoothed_sensor_n3_rpm, raw_sensors.rpm_n3, UINT16_MAX);
-    // OUTPUT SHAFT RPM. UN52 falls back to the rear wheel speeds on CAN here, MinTCU only has
-    // the dedicated sensor (raw_sensors.rpm_out is UINT16_MAX without it)
-    add_to_smoothed_sensor(&smoothed_sensor_out_rpm, raw_sensors.rpm_out, UINT16_MAX);
+    // OUTPUT SHAFT RPM CALCULATION (Same as UN52)
+    if (Sensors::using_dedicated_output_rpm()) {
+        add_to_smoothed_sensor(&smoothed_sensor_out_rpm, raw_sensors.rpm_out, UINT16_MAX);
+    } else {
+        // Poll CANBUS
+        uint16_t rl_can = UINT16_MAX;
+        uint16_t rr_can = UINT16_MAX;
+        if (nullptr != egs_can_hal) {
+            rl_can = egs_can_hal->get_rear_left_wheel(100);
+            rr_can = egs_can_hal->get_rear_right_wheel(100);
+        }
+        add_to_onepoll_sensor<uint16_t>(&onepoll_rl_speed, rl_can, UINT16_MAX);
+        add_to_onepoll_sensor<uint16_t>(&onepoll_rr_speed, rr_can, UINT16_MAX);
+        uint16_t rl = TCUIO::wheel_rl_2x_rpm();
+        uint16_t rr = TCUIO::wheel_rr_2x_rpm();
+        // MinTCU: uint32_t, int is 16 bit on AVR and rl+rr can be over 32767
+        uint32_t calc_rpm = UINT16_MAX;
+        if (UINT16_MAX != rl || UINT16_MAX != rr) {
+            if (UINT16_MAX == rl) {
+                // RL signal is faulty
+                calc_rpm = rr;
+            } else if (UINT16_MAX == rr) {
+                // RR signal is faulty
+                calc_rpm = rl;
+            } else {
+                // Both signals OK, take an average
+                calc_rpm = ((uint32_t)rl+(uint32_t)rr)/2;
+            }
+            calc_rpm *= DIFF_RATIO_F;
+            // MinTCU: UN52 also applies the 4Matic transfer case ratio here. Not ported, MinTCU has
+            // no transfer case on CAN
+            calc_rpm /= 2; // Since wheel speed is 2x
+            calc_rpm = MIN(calc_rpm, (uint32_t)UINT16_MAX - 1);
+        }
+        add_to_smoothed_sensor(&smoothed_sensor_out_rpm, calc_rpm, UINT16_MAX);
+    }
 }
 
 void update_can_values() {
@@ -178,6 +220,8 @@ uint16_t TCUIO::n2_rpm() {
 uint16_t TCUIO::n3_rpm() {
     return get_smoothed_sensor_val_unsigned(&smoothed_sensor_n3_rpm, 0);
 }
+uint16_t TCUIO::wheel_rl_2x_rpm() { return get_onepoll_sensor_val<uint16_t>(&onepoll_rl_speed, 2, UINT16_MAX); }
+uint16_t TCUIO::wheel_rr_2x_rpm() { return get_onepoll_sensor_val<uint16_t>(&onepoll_rr_speed, 2, UINT16_MAX); }
 uint16_t TCUIO::output_rpm() {
     return get_smoothed_sensor_val_unsigned(&smoothed_sensor_out_rpm, 0);
 }

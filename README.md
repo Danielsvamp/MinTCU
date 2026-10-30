@@ -21,6 +21,7 @@ The vibecoding begins 😬
 - [Wiring](#wiring)
 - [The 722.6 gearbox plug](#the-7226-gearbox-plug)
 - [Build and flash](#build-and-flash)
+- [Cars](#cars)
 - [Set it up for your car](#set-it-up-for-your-car)
 - [Calibration](#calibration)
 - [Before the first test](#before-the-first-test)
@@ -133,21 +134,36 @@ From the ATSG 722.6 manuals (2004 and 2009 editions). The gearbox has one 13 pin
 ## Build and flash
 
 1. Install PlatformIO and open this folder.
-2. Plug in the Mega and run `pio run -t upload` (or Upload in VS Code). The environment is `megaatmega2560` in `platformio.ini`.
+2. Plug in the Mega and run `pio run -e <car> -t upload` (or pick the environment in VS Code). There is one environment per car in `platformio.ini`, see [Cars](#cars). Without `-e` it builds `w124_210_016`.
 3. Open the serial monitor with `pio device monitor` (115200 baud is set in `platformio.ini`).
 
 It has been compiled with avr-gcc and the Arduino core directly, but not yet with PlatformIO itself, so please report it if `pio run` fails. It uses about 92 KB of flash and 2.7 KB of the Mega's 8 KB RAM.
+
+## Cars
+
+Each car has a folder in `src/cars/` with its calibration (`calibration_data.cpp`, generated, see [Calibration](#calibration)) and its settings (`vehicle_config.cpp`), and a PlatformIO environment of the same name that builds only that folder.
+
+| Environment | Car | Calibration (UN52 database) | CAN | Output speed |
+|---|---|---|---|---|
+| `w124_210_016` | Daniel's W124 with the W210 E270 CDI EDC15C6, EWM, 722.634 | EGS 0305452032, 210.016 | EGS52 frames | output speed sensor on pin 3 |
+| `w202_194` | W202 C220 CDI, CR1 EDC15, 722.614 or 722.699 | EGS 0305452032, 210.006 (W210 E220 CDI, same OM611) | EGS51 frames | rear wheel speeds from the ABS (BS_208) |
+
+The 202.194 is not in the UN52 database. The 210.006 calibration for EGS 0305452032 is byte-identical to the 203.006 one (W203 C220 CDI, 722.699), so it fits both gearboxes EPC lists for the 202.194. Other part numbers for 210.006 (0305452332, 0305454932) have the same table names but slightly different data, so the part number matters. The `w202_194` build stops with an error until `W202_194_DIFF_RATIO` is set from the car's coding, because a wrong diff ratio gives a wrong output speed.
+
+To add a car, copy a folder in `src/cars/`, generate its calibration with `--car <folder>`, change its `vehicle_config.cpp`, and add an environment to `platformio.ini`.
 
 ## Set it up for your car
 
 Everything is set in the source. These are the places to look:
 
 - `src/board_config.h`: pins, the MCP2515 crystal (`CAN_CRYSTAL`), the real 5 V of your board (`ADC_VREF_MV`), the battery divider and the ATF pull-up.
-- `src/nvs/eeprom_config.cpp` (`VEHICLE_CONFIG`, UN52 names):
+- `src/cars/<car>/vehicle_config.cpp` (`VEHICLE_CONFIG`, UN52 names):
   - `egs_can_type`: 1 = EGS51 frames, 2 = EGS52 frames. Default 2: the EDC15C6 sends its torque in MS_312/MS_212 (from its CAN frame map, not checked on the car yet). If the log shows `failsafe` 2 (no torque) with the engine running, try 1.
   - `engine_type`: 0 = diesel, 1 = petrol. Picks the shift maps and the redline (`red_line_rpm_diesel` / `red_line_rpm_petrol`).
+  - `io_0_usage`: 1 = output speed sensor on pin 3, 0 = output speed from the rear wheel speeds on CAN (ABS frame BS_208, EGS51 frames only, same as UN52).
   - `input_sensor_pulses_per_rev`: pulses per revolution of your output speed sensor. Leave it at 0 until the sensor is fitted.
-  - `diff_ratio`, `wheel_circumference`, `engine_drag_torque`: the UN52 defaults, change them for your car.
+  - `diff_ratio` (x1000): turns the wheel speeds on CAN into the output speed, so it must be right when `io_0_usage` is 0. Take it from the car's coding.
+  - `wheel_circumference`, `engine_drag_torque`: the UN52 defaults, change them for your car.
   - `default_profile`: the profile used before one has been saved.
 - `src/nvs/module_settings.h`:
   - `cc_reference_resistance`: the MPC/SPC solenoid + harness resistance (measure it at the TCU plug).
@@ -159,14 +175,13 @@ Everything is set in the source. These are the places to look:
 
 The calibration is the original EGS data from the UN52 config app database (`egs_db.bin` in
 [ultimate-nag52-config-app](https://github.com/rnd-ash/ultimate-nag52-config-app)). Nothing is typed in by hand,
-`tools/egs_cal_gen.py` writes `src/egs_calibration/calibration_data.cpp` from it.
+`tools/egs_cal_gen.py` writes `src/cars/<car>/calibration_data.cpp` from it.
 
-The one in the repo is for chassis 210.016 with a 722.634 (hydraulic STDP, mechanical var7, converter 0000).
-All EGS part numbers for that chassis/gearbox in the database use the same data. For another car:
+The calibrations in the repo are listed in [Cars](#cars). For another car:
 
 ```
 python3 tools/egs_cal_gen.py egs_db.bin --list --gearbox 722.634      # what is in the database
-python3 tools/egs_cal_gen.py egs_db.bin --egs 0305452032 --chassis 210.016 --gearbox 722.634
+python3 tools/egs_cal_gen.py egs_db.bin --egs 0305452032 --chassis 210.016 --gearbox 722.634 --car w124_210_016
 ```
 
 Without a valid calibration MinTCU stays in failsafe (flag `10` in the log).
@@ -177,7 +192,7 @@ Without a valid calibration MinTCU stays in failsafe (flag `10` in the log).
 2. Every solenoid MOSFET needs a flyback diode across the solenoid and a 10k gate pull-down, so a reset means 0 mA.
 3. Measure the MPC solenoid + harness resistance at the TCU plug and put it in `cc_reference_resistance` (`src/nvs/module_settings.h`).
 4. Check the calibration is for your gearbox (see above). Without one MinTCU stays in failsafe.
-5. Set `egs_can_type` and, once the output sensor is fitted, `input_sensor_pulses_per_rev` in `src/nvs/eeprom_config.cpp`.
+5. Set `egs_can_type` and, once the output sensor is fitted, `input_sensor_pulses_per_rev` in `src/cars/<car>/vehicle_config.cpp`.
 6. Put an ammeter in series with the MPC once and compare it with the `mpc_ma_est` column.
 7. Check which way round the S/W switch is with the `prof` log column, and pick the two profiles with `switch_profile_idx_top` / `switch_profile_idx_bottom` in `src/nvs/module_settings.h`.
 8. Check each solenoid's resistance at the gearbox plug against [the table above](#the-7226-gearbox-plug) before connecting MinTCU.
@@ -213,7 +228,7 @@ Without a valid calibration MinTCU stays in failsafe (flag `10` in the log).
 
 The pressure part of UN52, garage shifts (N/P to D/R), automatic shifting with the UN52 profiles, and + / - on the selector:
 
-- CAN (MCP2515), EGS51 or EGS52 frame set, chosen with `egs_can_type` in `src/nvs/eeprom_config.cpp` (UN52 numbers: 1 = EGS51, 2 = EGS52). Default is EGS52: the W210 EDC15C6 sends its torque in MS_312/MS_212, not MS_310 (from the EDC15C6 CAN frame map, not checked on the car yet). If the log shows `failsafe` 2 (no torque) with the engine running, try 1.
+- CAN (MCP2515), EGS51 or EGS52 frame set, chosen with `egs_can_type` in `src/cars/<car>/vehicle_config.cpp` (UN52 numbers: 1 = EGS51, 2 = EGS52). Default is EGS52: the W210 EDC15C6 sends its torque in MS_312/MS_212, not MS_310 (from the EDC15C6 CAN frame map, not checked on the car yet). If the log shows `failsafe` 2 (no torque) with the engine running, try 1.
   - EGS51: torque (MS_310), pedal + ESP torque (MS_210), RPM (MS_308), coolant temp (MS_608)
   - EGS52: torque (MS_312, MS_212), pedal (MS_210), RPM (MS_308), coolant temp (MS_608)
   - Both: shifter, kickdown and program button / switch (EWM_230)
@@ -221,7 +236,7 @@ The pressure part of UN52, garage shifts (N/P to D/R), automatic shifting with t
     - EGS52 (`Egs52Can`, 8 bytes): actual and target gear, TCC open/slipping/closed, gearbox OK, garage shift (`KS`), start release (`ALF`, always on like UN52's start value; UN52 also clears it outside P/N, MinTCU does not, the W124 starter lockout is wired), and the torque request (`M_EGS`, `MMIN_EGS`/`MMAX_EGS`, `DYN0`/`DYN1`) with UN52's 40 ms toggle, parity and frame counter. UN52 also sends GS_338 (speeds) and GS_418 (cluster), MinTCU does not.
     - EGS51 (`Egs51Can`, 6 bytes): actual and target gear, P/N, TCC open/slipping/closed, TCC torque multiplier, gearbox OK, garage shift, and the torque request (`TORQUE_REQ`, 3 Nm steps, with the engine drag torque added back like UN52). UN52 also sends GS_418, MinTCU does not.
   - The MCP2515 starts in listen-only mode (it never ACKs or sends). It goes to normal mode only once the car's frames are being received, which proves the bit rate and `CAN_CRYSTAL`. It goes back to listen-only when nothing has been received for 500 ms (ignition off; MinTCU's number), and for good (until the next power up) if it ever goes bus-off. `trq_req` in the log shows `L` while it is listening only.
-- Speed sensors: N2 and N3 (pins 18/19, 60 pulses/rev) give the input shaft speed like UN52 (`calc_turbine_rpm`). A dedicated output speed sensor goes on pin 3. Its pulses per rev go in `input_sensor_pulses_per_rev` (UN52 name) in `src/nvs/eeprom_config.cpp`, while that is 0 the output sensor is not used. The pins take a clean 0/5 V square wave, condition the sensor signals first.
+- Speed sensors: N2 and N3 (pins 18/19, 60 pulses/rev) give the input shaft speed like UN52 (`calc_turbine_rpm`). A dedicated output speed sensor goes on pin 3. Its pulses per rev go in `input_sensor_pulses_per_rev` (UN52 name) in `src/cars/<car>/vehicle_config.cpp`, while that is 0 the output sensor is not used. With `io_0_usage` 0 the output speed comes from the rear wheel speeds in the ABS frame BS_208 instead (EGS51 frames, same as UN52 `update_rpm_sensors`), and if that frame is missing it is estimated from the input speed like a car without the sensor. The pins take a clean 0/5 V square wave, condition the sensor signals first.
 - MPC pressure from input torque (with the torque converter multiplication from the input speed), same calculation as UN52 (`find_working_mpc_pressure` -> `calc_current_linear_sol` -> pcs map -> mA).
 - No current sensing: the PWM duty is calculated from the wanted current, the battery voltage and the coil resistance at ATF temperature (open loop, see `src/solenoids/cc_solenoid.h`).
 - Garage shifts, same as UN52: moving the selector from P/N to D or R engages the clutch (B2 for D, B3 for R) with the UN52 SPC/MPC ramps and shift solenoids, watching the input speed (N2/N3) slow down. Back to N/P aborts it. D engages 2nd (the 722.6 limp gear, same as UN52), the reverse gear is calculated as R1 (more pressure). If N2/N3 read nothing with the engine running, or in failsafe, D/R engages like limp mode (SPC at max pressure). Without the output speed sensor the 'car is still moving' check (output_rpm_force_n) cannot work, so only select D or R when stopped.
@@ -230,7 +245,7 @@ The pressure part of UN52, garage shifts (N/P to D/R), automatic shifting with t
   - No brake pedal input (no BS_200 on the W124), so 'no upshift while braking' never happens.
   - Nothing is shown on the cluster (MinTCU does not send GS_418).
 - Program selector, same as UN52 with the EWM (`src/shifter/`), set by `ETS_CURRENT_SETTINGS` in `src/nvs/module_settings.h` (UN52 defaults, except the selector type):
-  - `ewm_selector_type = Button` (UN52 default): each press of the program button goes to the next enabled profile. By default that is Standard and Manual (`ewm_enable_c/w/a/r` are false). The profile is saved to EEPROM when going into P (`ewm_save_profile`, not for M/R/W unless `ewm_save_profile_manual`), so the car starts in it next time. Before anything is saved it starts in `default_profile` (Standard) from `eeprom_config.cpp`.
+  - `ewm_selector_type = Button` (UN52 default): each press of the program button goes to the next enabled profile. By default that is Standard and Manual (`ewm_enable_c/w/a/r` are false). The profile is saved to EEPROM when going into P (`ewm_save_profile`, not for M/R/W unless `ewm_save_profile_manual`), so the car starts in it next time. Before anything is saved it starts in `default_profile` (Standard) from `vehicle_config.cpp`.
   - `ewm_selector_type = Switch` (MinTCU default, the W210 selector has the S/W switch): top = `switch_profile_idx_top` (Comfort), bottom = `switch_profile_idx_bottom` (Standard). Either can be Standard, Comfort, Agility, Manual or Race (`SelectableGearboxProfile`, Winter is not selectable in UN52).
   - UN52 does not read the program button or switch for EGS51 cars. The EWM sends the same frame there, so MinTCU uses UN52's EGS52 code for both.
   - `prof` in the log shows the profile, so you can check which way round your switch is.
@@ -240,7 +255,7 @@ The pressure part of UN52, garage shifts (N/P to D/R), automatic shifting with t
   - Fixed from UN52: `TCC_MULTI` in GS_218 is `bool TCC_MULTI: 8` in UN52's `GS51.h`, so UN52 sends 0x01 instead of 100-254. MinTCU's copy uses `uint8_t`.
   - No shift adaptation.
   - No output speed sensor yet: `output_rpm` is calculated from the input speed and the gear ratio. During a shift it carries on at the rate it was changing before the shift. So MinTCU cannot see a wrong gear (for example after a reset while driving, it assumes 2nd).
-  - `diff_ratio` and `engine_drag_torque` in `eeprom_config.cpp` are the UN52 defaults (1.000 and 40 Nm).
+  - `diff_ratio` and `engine_drag_torque` in `src/cars/w124_210_016/vehicle_config.cpp` are the UN52 defaults (1.000 and 40 Nm).
 - Shift solenoids Y3/Y4/Y5 (pins 6/7/8): 250 ms full on, then held at the UN52 hold PWM.
 - Torque converter lock-up (TCC), same as UN52 (`src/torque_converter.cpp`): in a forward gear above 1000 RPM input it fills the converter clutch and then controls the slip (engine RPM - input RPM) to the UN52 slip target map, with the UN52 PID and adaptation. Differences from UN52:
   - The TCC adaptation is saved to the Mega's EEPROM (instead of the ESP32 NVS) when the selector goes into P with the parking lock in, same as UN52. It is written in the background, one byte at a time and only bytes that changed (`src/nvs/eeprom_impl.cpp`). If the saved data is missing or broken (CRC), that gear starts from the UN52 default (0) again.

@@ -3,7 +3,7 @@
 // Source: UN52 config app egs_db.bin
 // EGS: 0305452032, chassis: 210.016, gearbox: 722.634 W5A580
 // Hydraulic: STDP, mechanical: var7, torque converter: 0000, shift algorithm: SM06
-#include "calibration_structs.h"
+#include "../../egs_calibration/calibration_structs.h"
 #include <avr/pgmspace.h>
 
 static_assert(sizeof(ShiftAlgorithmPack) == 672, "ShiftAlgorithmPack layout does not match egs_db.bin");

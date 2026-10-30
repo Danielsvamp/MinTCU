@@ -6,8 +6,8 @@
 
 /*
     UN52's vehicle config struct (nvs/eeprom_config.h), same fields and names.
-    VEHICLE_CONFIG is compiled in here (eeprom_config.cpp), it is not stored in EEPROM.
-    Only egs_can_type, io_0_usage and input_sensor_pulses_per_rev are used so far.
+    VEHICLE_CONFIG is compiled in (src/cars/<car>/vehicle_config.cpp), it is not stored in EEPROM.
+    Only egs_can_type, io_0_usage, input_sensor_pulses_per_rev and diff_ratio are used so far.
 */
 struct __attribute__ ((packed)) TCM_CORE_CONFIG{
     uint8_t deprecated_is_large_nag;
