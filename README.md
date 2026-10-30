@@ -148,7 +148,7 @@ Each car has a folder in `src/cars/` with its calibration (`calibration_data.cpp
 | `w124_210_016` | Daniel's W124 with the W210 E270 CDI EDC15C6, EWM, 722.634 | EGS 0305452032, 210.016 | EGS52 frames | output speed sensor on pin 3 |
 | `w202_194` | W202 C220 CDI, CR1 EDC15, 722.614 or 722.699 | EGS 0305452032, 210.006 (W210 E220 CDI, same OM611) | EGS51 frames | rear wheel speeds from the ABS (BS_208) |
 
-The 202.194 is not in the UN52 database. The 210.006 calibration for EGS 0305452032 is byte-identical to the 203.006 one (W203 C220 CDI, 722.699), so it fits both gearboxes EPC lists for the 202.194. Other part numbers for 210.006 (0305452332, 0305454932) have the same table names but slightly different data, so the part number matters. The `w202_194` build stops with an error until `W202_194_DIFF_RATIO` is set from the car's coding, because a wrong diff ratio gives a wrong output speed.
+The 202.194 is not in the UN52 database. The 210.006 calibration for EGS 0305452032 is byte-identical to the 203.006 one (W203 C220 CDI, 722.699), so it fits both gearboxes EPC lists for the 202.194. Other part numbers for 210.006 (0305452332, 0305454932) have the same table names but slightly different data, so the part number matters. Its diff ratio (3.07) is from EPC, not yet checked against the car's coding.
 
 To add a car, copy a folder in `src/cars/`, generate its calibration with `--car <folder>`, change its `vehicle_config.cpp`, and add an environment to `platformio.ini`.
 
