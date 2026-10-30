@@ -5,8 +5,10 @@
 #include "../../nvs/module_settings.h"
 
 enum class ProgramSelectorType {
+	SLR,
 	EWMButton,
 	EWMSwitch,
+	TRRS
 };
 
 /**
@@ -38,6 +40,9 @@ enum class DiagProfileInputState: uint8_t {
 	SwitchBottom = 2,
 	ButtonPressed = 3,
 	ButtonReleased = 4,
+	SLRLeft = 5,
+	SLRMiddle = 6,
+	SLRRight = 7,
 	/**
 	 * @brief Could not be determined (Comm error)
 	 */
@@ -52,14 +57,14 @@ public:
 	 * @return Profile that should be in use. nullptr is returned if the current
 	 * switch position could not be determined, in which case, we do not switch profiles.
 	 */
-	virtual AbstractProfile* get_profile(const uint32_t expire_time_ms);
+	virtual AbstractProfile* get_profile(void);
 	/**
 	 * @brief For identification
 	 * @return 
 	 */
-	virtual ProgramSelectorType get_type() const;
+	virtual ProgramSelectorType get_type(void) const;
 
-	virtual DiagProfileInputState get_input_raw() const {
+	virtual DiagProfileInputState get_input_raw(void) const {
 		return DiagProfileInputState::None;
 	};
 protected:

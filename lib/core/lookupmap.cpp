@@ -2,6 +2,8 @@
 #include <tcu_maths_impl.h>
 #include <clock.h>
 #include <string.h>
+#include <stdlib.h>
+#include <math.h>
 
 float LookupMap::get_value(const float xValue, const float yValue) {
     return this->get_value(xValue, yValue, 0);
@@ -66,6 +68,58 @@ uint16_t LookupMap::data_size() {
     return this->table->data_size();
 }
 
+// Same as UN52 (interpolate_xy is written out here, MinTCU's LookupMap has no x_header member)
+bool LookupMap::add_value(const int16_t sample_point_value, const int16_t x_value, const int16_t y_value, const float threshold)
+{
+    // calibration parameter
+    const float adapt_gain = 0.20F;
+
+    // local variables
+    int16_t* data = this->get_current_data();
+    const LookupHeader* xHeader = this->table->get_header();
+    const uint16_t x_header_size = xHeader->get_size();
+
+    uint16_t    idx_min;
+    uint16_t    idx_max;
+    uint16_t    idy_min;
+    uint16_t    idy_max;
+
+    search_value<int16_t>(x_value, xHeader->get_data(), xHeader->get_size(), &idx_min, &idx_max);
+    search_value<int16_t>(y_value, yHeader->get_data(), yHeader->get_size(), &idy_min, &idy_max);
+    const int16_t x1 = xHeader->get_value(idx_min);
+    const int16_t x2 = xHeader->get_value(idx_max);
+    const int16_t y1 = yHeader->get_value(idy_min);
+    const int16_t y2 = yHeader->get_value(idy_max);
+    const float f_11 = (float)data[(idy_min * x_header_size) + idx_min];
+    const float f_12 = (float)data[(idy_min * x_header_size) + idx_max];
+    const float f_21 = (float)data[(idy_max * x_header_size) + idx_min];
+    const float f_22 = (float)data[(idy_max * x_header_size) + idx_max];
+    const float f_11f_12_interpolated = interpolate(f_11, f_12, x1, x2, (float)x_value);
+    const float f_21f_22_interpolated = interpolate(f_21, f_22, x1, x2, (float)x_value);
+    // interpolation to get the current map value at the given x/y position
+    const float interp = interpolate(f_11f_12_interpolated, f_21f_22_interpolated, y1, y2, (float)y_value);
+
+    bool significant_change = false;
+
+    // weights calculation
+    const float w_x = (x1 != x2) ? (float)(x_value - x1) / (float)(x2 - x1) : 0.F;
+    const float w_y = (y1 != y2) ? (float)(y_value - y1) / (float)(y2 - y1) : 0.F;
+
+    // deviatation
+    const float delta = (float)sample_point_value - interp;
+    // rating
+    significant_change = ((fabsf(delta) / interp) > threshold); // UN52 abs(float) (std::abs), stdlib abs() is int on AVR
+    // correction calculation
+    const float corr = delta * adapt_gain;
+
+    // map adaptation
+    data[idy_min * x_header_size + idx_min] = clampint16((int32_t)data[idy_min * x_header_size + idx_min] + (int32_t)(corr * (1.0F - w_x) * (1.0F - w_y)));
+    data[idy_min * x_header_size + idx_max] = clampint16((int32_t)data[idy_min * x_header_size + idx_max] + (int32_t)(corr * w_x * (1.0F - w_y)));
+    data[idy_max * x_header_size + idx_min] = clampint16((int32_t)data[idy_max * x_header_size + idx_min] + (int32_t)(corr * (1.0F - w_x) * w_y));
+    data[idy_max * x_header_size + idx_max] = clampint16((int32_t)data[idy_max * x_header_size + idx_max] + (int32_t)(corr * w_x * w_y));
+    return significant_change;
+}
+
 void LookupMap::copy_lookup_cache(LookupCache* dest) const {
     if (dest == nullptr) {
         return;
@@ -97,8 +151,8 @@ float LookupMap::get_x_header_interpolated(const float value, const int16_t y) c
     return value1 + progress_between_targets(value, row[idvalue_min], row[idvalue_max]) * (value2 - value1);
 }
 
-LookupAllocMap::LookupAllocMap(const int16_t* _xHeader, const uint16_t _xHeaderSize, const int16_t* _yHeader, const uint16_t _yHeaderSize, const int16_t* _data, const uint16_t _dataSize) {
-    this->table = new LookupAllocTable(_xHeader, _xHeaderSize, _data, _dataSize);
+LookupAllocMap::LookupAllocMap(const int16_t* _xHeader, const uint16_t _xHeaderSize, const int16_t* _yHeader, const uint16_t _yHeaderSize, const int16_t* _data, const uint16_t _dataSize, const bool data_in_flash) {
+    this->table = new LookupAllocTable(_xHeader, _xHeaderSize, _data, _dataSize, data_in_flash);
     this->yHeader = new LookupAllocHeader(_yHeader, _yHeaderSize);
     this->yHeaderSize = _yHeaderSize;
 }
@@ -120,4 +174,52 @@ LookupRefMap::LookupRefMap(int16_t* _xHeader, const uint16_t _xHeaderSize, int16
     this->table = new LookupRefTable(_xHeader, _xHeaderSize, _data, _dataSize);
     this->yHeader = new LookupRefHeader(_yHeader, _yHeaderSize);
     this->yHeaderSize = _yHeaderSize;
+}
+
+// Same as UN52 (TCU_HEAP_ALLOC is malloc here)
+LookupByteMap::LookupByteMap(uint8_t* _xHeader, const uint16_t _xHeaderSize, uint8_t* _yHeader, const uint16_t _yHeaderSize, uint8_t* _data, const uint16_t _dataSize) {
+    this->x_alloc = static_cast<int16_t*>(malloc(_xHeaderSize * sizeof(int16_t)));
+    this->y_alloc = static_cast<int16_t*>(malloc(_yHeaderSize * sizeof(int16_t)));
+    this->z_alloc = static_cast<int16_t*>(malloc(_dataSize * sizeof(int16_t)));
+    this->z_size = _dataSize;
+    this->table = nullptr;
+    this->yHeader = nullptr;
+    this->yHeaderSize = 0;
+    if (nullptr != this->x_alloc && nullptr != this->y_alloc && nullptr != this->z_alloc) {
+        for (uint16_t i = 0; i < _xHeaderSize; i++) {
+            this->x_alloc[i] = _xHeader[i];
+        }
+        for (uint16_t i = 0; i < _yHeaderSize; i++) {
+            this->y_alloc[i] = _yHeader[i];
+        }
+        for (uint16_t i = 0; i < _dataSize; i++) {
+            this->z_alloc[i] = _data[i];
+        }
+        this->table = new LookupRefTable(x_alloc, _xHeaderSize, z_alloc, _dataSize);
+        this->yHeader = new LookupRefHeader(y_alloc, _yHeaderSize);
+        this->yHeaderSize = _yHeaderSize;
+    }
+}
+
+bool LookupByteMap::is_allocated(void) const {
+    return nullptr != this->x_alloc && nullptr != this->y_alloc && nullptr != this->z_alloc;
+}
+
+bool LookupByteMap::add_data(const uint8_t* map, const uint16_t size) {
+    if (size != this->z_size) {
+        return false;
+    } else {
+        for (uint16_t i = 0; i < size; i++) {
+            this->z_alloc[i] = map[i];
+        }
+        return true;
+    }
+}
+
+LookupByteMap::~LookupByteMap() {
+    delete this->table;
+    delete this->yHeader;
+    free(this->x_alloc);
+    free(this->y_alloc);
+    free(this->z_alloc);
 }

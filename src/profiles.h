@@ -4,7 +4,16 @@
 #define PROFILES_H
 
 #include "common_structs.h"
-//#include "stored_map.h"
+#include <lookupflashmap.h>
+
+/*
+    Same as UN52 profiles.h, with these differences:
+    - UN52's maps are StoredMaps (NVS, editable in the config app). MinTCU has no config app, and
+      would need about 3KB of RAM to copy every profile's maps, so the maps are read straight from
+      flash (LookupFlashMap) and are always UN52's default maps. The NVS key names are left out.
+    - get_display_gear() and the tag_id are left out (MinTCU sends nothing on CAN, so there is no
+      cluster display)
+*/
 
 const uint8_t NUM_PROFILES = 6u; // S, C, W, A, M, R
 const uint8_t PROFILE_IDX_S = 0u;
@@ -16,11 +25,6 @@ const uint8_t PROFILE_IDX_R = 5u;
 
 const uint8_t SHIFT_MAP_X_SIZE = 11u;
 const uint8_t SHIFT_MAP_Y_SIZE = 4u;
-const int16_t shift_table_x_header[SHIFT_MAP_X_SIZE] = {0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
-const int16_t upshift_y_headers[SHIFT_MAP_Y_SIZE] = {1,2,3,4};
-const int16_t downshift_y_headers[SHIFT_MAP_Y_SIZE] = {2,3,4,5};
-
-const int16_t shift_time_table_x_header[6] = {0, 20, 40, 60, 80, 100};
 
 enum class GearboxProfile : uint8_t{
     // Standard (S)
@@ -39,7 +43,7 @@ enum class GearboxProfile : uint8_t{
     // Reserved for 'no profile' (_)
     Underscore = 7u,
     // Failure (F)
-    Failure = 8u    
+    Failure = 8u
 };
 
 /**
@@ -50,14 +54,7 @@ public:
     static const uint8_t MAX_PROFILES = 4u;
 
     AbstractProfile(
-        bool is_diesel, 
-        const char* tag_id, 
-        const char* upshift_map_name_diesel, 
-        const char* downshift_map_name_diesel, 
-        const char* upshift_map_name_petrol, 
-        const char* downshift_map_name_petrol,
-        const char* upshift_time_map_name,
-        const char* downshift_time_map_name,
+        bool is_diesel,
         const int16_t* def_upshift_data_diesel,
         const int16_t* def_downshift_data_diesel,
         const int16_t* def_upshift_data_petrol,
@@ -65,25 +62,25 @@ public:
         const int16_t* def_upshift_time_data,
         const int16_t* def_downshift_time_data
     );
-    // static AbstractProfile *profile_from_auto_ty(AutoProfile prof);
     virtual void update(SensorData* sensors) {};
     virtual GearboxProfile get_profile(void) const = 0;
-    virtual GearboxDisplayGear get_display_gear(GearboxGear target, GearboxGear actual) = 0;
     virtual bool should_upshift(GearboxGear current_gear, SensorData* sensors) = 0;
     virtual bool should_downshift(GearboxGear current_gear, SensorData* sensors) = 0;
     ShiftCharacteristics get_shift_characteristics(GearChange requested, SensorData* sensors);
-    
-    
-    StoredMap* get_upshift_map(void) {
+    virtual bool extra_shift_dynamics(void) {
+        return false;
+    }
+
+    LookupFlashMap* get_upshift_map(void) {
         return this->upshift_table;
     }
-    StoredMap* get_downshift_map(void) {
+    LookupFlashMap* get_downshift_map(void) {
         return this->downshift_table;
     }
-    StoredMap* get_upshift_time_map(void) {
+    LookupFlashMap* get_upshift_time_map(void) {
         return this->upshift_time_map;
     }
-    StoredMap* get_downshift_time_map(void) {
+    LookupFlashMap* get_downshift_time_map(void) {
         return this->downshift_time_map;
     }
 
@@ -108,29 +105,29 @@ public:
     }
     uint8_t get_profile_id(void) { return (uint8_t)get_profile(); }
 protected:
-    StoredMap* upshift_table = nullptr;
-    StoredMap* downshift_table = nullptr;
-    StoredMap* upshift_time_map = nullptr;
-    StoredMap* downshift_time_map = nullptr;
+    LookupFlashMap* upshift_table = nullptr;
+    LookupFlashMap* downshift_table = nullptr;
+    LookupFlashMap* upshift_time_map = nullptr;
+    LookupFlashMap* downshift_time_map = nullptr;
 private:
-    bool is_diesel; 
-    const char* tag_id;
+    bool is_diesel;
 };
 
 class AgilityProfile : public AbstractProfile {
 public:
     explicit AgilityProfile(bool is_diesel);
     GearboxProfile get_profile(void) const override { return GearboxProfile::Agility; }
-    GearboxDisplayGear get_display_gear(GearboxGear target, GearboxGear actual) override;
     bool should_upshift(GearboxGear current_gear, SensorData* sensors) override;
     bool should_downshift(GearboxGear current_gear, SensorData* sensors) override;
+    bool extra_shift_dynamics(void) override {
+        return true;
+    }
 };
 
 class ComfortProfile : public AbstractProfile {
 public:
     explicit ComfortProfile(bool is_diesel);
     GearboxProfile get_profile(void) const override { return GearboxProfile::Comfort; }
-    GearboxDisplayGear get_display_gear(GearboxGear target, GearboxGear actual) override;
     bool should_upshift(GearboxGear current_gear, SensorData* sensors) override;
     bool should_downshift(GearboxGear current_gear, SensorData* sensors) override;
     GearboxGear get_start_gear(void) const override {
@@ -142,7 +139,6 @@ class WinterProfile : public AbstractProfile {
 public:
     explicit WinterProfile(bool is_diesel);
     GearboxProfile get_profile(void) const override { return GearboxProfile::Winter; }
-    GearboxDisplayGear get_display_gear(GearboxGear target, GearboxGear actual) override;
     bool should_upshift(GearboxGear current_gear, SensorData* sensors) override;
     bool should_downshift(GearboxGear current_gear, SensorData* sensors) override;
     GearboxGear get_start_gear(void) const override {
@@ -154,21 +150,15 @@ class StandardProfile : public AbstractProfile {
 public:
     explicit StandardProfile(bool is_diesel);
     GearboxProfile get_profile(void) const override { return GearboxProfile::Standard; }
-    GearboxDisplayGear get_display_gear(GearboxGear target, GearboxGear actual) override;
     bool should_upshift(GearboxGear current_gear, SensorData* sensors) override;
     bool should_downshift(GearboxGear current_gear, SensorData* sensors) override;
     void update(SensorData *sd) override;
-private:
-    int32_t accel_delta_factor = 0;
-    SensorData last_sensors = {};
-    uint32_t last_check = 0;
 };
 
 class ManualProfile : public AbstractProfile {
 public:
     explicit ManualProfile(bool is_diesel);
     GearboxProfile get_profile(void) const override { return GearboxProfile::Manual; }
-    GearboxDisplayGear get_display_gear(GearboxGear target, GearboxGear actual) override;
     bool should_upshift(GearboxGear current_gear, SensorData* sensors) override;
     bool should_downshift(GearboxGear current_gear, SensorData* sensors) override;
 };
@@ -177,9 +167,11 @@ class RaceProfile : public AbstractProfile {
 public:
     explicit RaceProfile(bool is_diesel);
     GearboxProfile get_profile(void) const override { return GearboxProfile::Race; }
-    GearboxDisplayGear get_display_gear(GearboxGear target, GearboxGear actual) override;
     bool should_upshift(GearboxGear current_gear, SensorData* sensors) override;
     bool should_downshift(GearboxGear current_gear, SensorData* sensors) override;
+    bool extra_shift_dynamics(void) override {
+        return true;
+    }
 };
 
 extern AgilityProfile* agility;

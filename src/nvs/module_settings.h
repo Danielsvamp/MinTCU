@@ -3,12 +3,19 @@
 
 #include <stdint.h>
 #include <tcu_maths.h>
-//#include <esp_err.h>
 
+/*
+    Slimmed down copy of UN52's module settings. Only what MinTCU uses.
+    No EEPROM yet, these are compiled in. SBS, ADP, REL and CRS are copied verbatim from UN52.
+*/
+
+// Copied verbatim from UN52 nvs/module_settings.h
 // Torque converter setting
 typedef struct {
-    // Enable adaptation for all gears
+    // Enable adaptation for all gears (Write to adaptation maps)
     bool adapt_enable;
+    // Enable PID control for all gears (Realtime pressure correction)
+    bool pid_enable;
     // Enable torque converter in D1
     bool enable_d1;
     // Enable torque converter in D2
@@ -27,17 +34,7 @@ typedef struct {
     // Open the converter fully, if the engine requests it.
     // This is usually used under very heavy load under low RPM
     bool react_on_engine_open_request;
-    // Scaling for TCC output pressure based on temperature. 
-    //
-    // When cold, the ATF is thicker, thus a higher pressure can be commanded
-    // with the same TCC solenoid PWM. This scaling is meant to mitigate this
-    // effect.
-    //
-    // Adaptation can only work when ATF is hotter than the `raw_max` value
-    //
-    // To disable this scaling, set output_min and output_max to 1.0
-    LinearInterpSetting tcc_temp_multiplier;
-    // Prefill pressure for the torque converter. When going from Open->Slipping, 
+    // Prefill pressure for the torque converter. When going from Open->Slipping,
     // a burst of pressure is first sent in order to fill the converter faster
     // UNIT: mBar
     uint16_t prefill_pressure;
@@ -51,18 +48,16 @@ typedef struct {
     //
     // UNIT: Nm
     uint16_t tcc_max_trq_override;
-    // Forces the TCC to unlock on upshifts under load
-    bool unlock_load_upshifts;
-    // Forces the TCC to unlock on downshifts under load
-    bool unlock_load_downshifts;
-    // Forces the TCC to unlock on upshifts when coasting
-    bool unlock_coasting_upshifts;
-    // Forces the TCC to unlock on downshifts when coasting
-    bool unlock_coasting_downshifts;
+    // MinTCU (Not in UN52): profiles that keep the converter locked when coasting, for maximum
+    // engine braking. Bit per profile id (1 << GearboxProfile, Standard 0, Comfort 1, Winter 2,
+    // Agility 3, Manual 4, Race 5). The other profiles use the UN52 coast slip (SLIP_Z_COAST)
+    uint8_t coast_lock_profiles;
+
 } __attribute__ ((packed)) TCC_MODULE_SETTINGS;
 
 const TCC_MODULE_SETTINGS TCC_DEFAULT_SETTINGS = {
     .adapt_enable = true,
+    .pid_enable = true,
     .enable_d1 = true,
     .enable_d2 = true,
     .enable_d3 = true,
@@ -70,75 +65,126 @@ const TCC_MODULE_SETTINGS TCC_DEFAULT_SETTINGS = {
     .enable_d5 = true,
     .react_on_engine_slip_request = true,
     .react_on_engine_open_request = true,
-    .tcc_temp_multiplier = LinearInterpSetting {
-        .new_min = 0.5,
-        .new_max = 1.0,
-        .raw_min = -10,
-        .raw_max = 60
-    },
     .prefill_pressure = 10000,
     .prefill_cycles = 10,
     .tcc_max_trq_override = 0,
-    .unlock_load_upshifts = true,
-    .unlock_load_downshifts = true,
-    .unlock_coasting_upshifts = false,
-    .unlock_coasting_downshifts = false
+    .coast_lock_profiles = (1 << 3) | (1 << 4) | (1 << 5), // Agility, Manual, Race
 };
 
-// Solenoid subsystem settings
+// Solenoid settings
 typedef struct {
-    // Minimum battery voltage before performing 
-    // the solenoid boot up test on TCU start
+    // Below this battery voltage the MPC/SPC solenoids are switched off (0mA = max pressure)
     //
     // UNIT: mV
-    uint16_t min_batt_power_on_test;
-    // If a solenoid is reading more than this current during the
-    // boot test, then it is assumed faulty
-    //
-    // UNIT: mA
-    uint16_t current_threshold_error;
-    // Solenoid reference voltage. DO NOT TOUCH THIS. It is intended 
-    // for debugging ONLY!
+    uint16_t min_batt_cc_mv;
+    // Above this battery voltage the MPC/SPC solenoids are switched off (0mA = max pressure)
     //
     // UNIT: mV
-    uint16_t cc_vref_solenoid;
-    // The temperature coefficient of the solenoid wiring and coils.
-    // DO NOT TOUCH THIS. It is intended for debugging ONLY!
-    // UNIT: Ohm/deg C
+    uint16_t max_batt_cc_mv;
+    // The temperature coefficient of the solenoid wiring and coils (copper)
+    //
+    // UNIT: % per C
     float cc_temp_coefficient_wires;
-    // MPC and SPC solenoids reference resistance at cc_reference_temp
+    // MPC and SPC solenoids resistance at cc_reference_temp. Measure YOUR solenoid + harness
+    // resistance with a meter at the TCU plug and put it here!
+    //
     // UNIT: Ohm
     float cc_reference_resistance;
     // MPC and SPC solenoids resistance reference temperature
+    //
     // UNIT: C
     float cc_reference_temp;
-    // MPC and SPC current control PID settings - P component
-    int16_t cc_pid_p;
-    // MPC and SPC current control PID settings - I component
-    int16_t cc_pid_i;
-    // MPC and SPC current control PID settings - D component
-    int16_t cc_pid_d;
-    // MPC and SPC solenoid current offset to correct for ADC/Board characteristics
+    // Voltage drop of the flyback diode across the solenoid (used in the PWM duty calculation)
+    // 1N5822 schottky: about 400mV at 1A (datasheet forward voltage curve)
     //
-    // 1.3 boards - (Up to -100mA is recommended)
-    // UNIT: mA
-    int16_t cc_offset_ma;
-    
+    // UNIT: mV
+    uint16_t cc_flyback_diode_drop_mv;
+    // Voltage drop of the MOSFET when ON. IRLB3034: Rds(on) max 2.0mOhm at Vgs 4.5V, so ~2mV at 1A.
+    // The harness resistance belongs in cc_reference_resistance (measure it at the TCU plug)
+    //
+    // UNIT: mV
+    uint16_t cc_driver_drop_mv;
+    // Reference voltage for the shift solenoid hold PWM (Same as UN52, the hold PWM is scaled by
+    // cc_vref_solenoid / battery voltage)
+    //
+    // UNIT: mV
+    uint16_t cc_vref_solenoid;
 } __attribute__ ((packed)) SOL_MODULE_SETTINGS;
 
 const SOL_MODULE_SETTINGS SOL_DEFAULT_SETTINGS = {
-    .min_batt_power_on_test = 11000,
-    .current_threshold_error = 500,
-    .cc_vref_solenoid = 12000,
-    .cc_temp_coefficient_wires = 0.393,
-    .cc_reference_resistance = 5.3,
-    .cc_reference_temp = 25,
-    .cc_pid_p = 800,
-    .cc_pid_i = 500,
-    .cc_pid_d = 0,
-    .cc_offset_ma = 0,
+    9000,   // min_batt_cc_mv (same as UN52)
+    16000,  // max_batt_cc_mv
+    0.393,  // cc_temp_coefficient_wires (same as UN52)
+    5.3,    // cc_reference_resistance (same as UN52)
+    25,     // cc_reference_temp (same as UN52)
+    400,    // cc_flyback_diode_drop_mv (1N5822)
+    2,      // cc_driver_drop_mv (IRLB3034)
+    12000,  // cc_vref_solenoid (same as UN52)
 };
 
+// Pressure manager settings
+typedef struct {
+    // DEBUG: Friction coefficient when stationary (In gear)
+    uint8_t stationary_coefficient;
+    // DEBUG: Friction coefficient when releasing a clutch
+    uint8_t releasing_coefficient;
+    // DEBUG: Friction coefficient when applying a clutch (Cold)
+    uint8_t applying_coefficient_cold;
+    // DEBUG: Friction coefficient when applying a clutch (Hot)
+    uint8_t applying_coefficient_hot;
+} __attribute__ ((packed)) PRM_MODULE_SETTINGS;
+
+// Same as UN52 defaults
+const PRM_MODULE_SETTINGS PRM_DEFAULT_SETTINGS = {
+    100, // stationary_coefficient
+    120, // releasing_coefficient
+    185, // applying_coefficient_cold
+    140, // applying_coefficient_hot
+};
+
+// Garage shift settings (Same fields and defaults as UN52)
+typedef struct {
+    // Threshold output speed where the gearbox
+    // will force hydraulic N when trying to shift into R
+    // to prevent damage to the gearbox. Once below this
+    // output shaft speed, the gearbox will allow the garage
+    // shift to proceed
+    uint16_t output_rpm_force_n_rev;
+    // Threshold output speed where the gearbox
+    // will force hydraulic N when trying to shift from N to D
+    // to prevent damage to the gearbox. Once below this
+    // output shaft speed, the gearbox will allow the N-D
+    // shift to proceed
+    uint16_t output_rpm_force_n;
+    // Modulating pressure during applying phase
+    uint16_t p_mod_applying;
+    // Modulating pressure during synchronization phase
+    uint16_t p_mod_sync;
+    // Shift pressure ramp (In mBar/20ms)
+    uint16_t spc_ramp_apply;
+    // Clutch speed threshold to determine if the
+    // garage shift was completed OK
+    uint16_t completed_rpm;
+    // Clutch speed threshold to proceed from apply to synchronization,
+    // when not applying the accelerator
+    uint16_t sync_rpm_idle;
+    // Clutch speed threshold to proceed from apply to synchronization,
+    // when applying the accelerator
+    uint16_t sync_rpm_with_accel;
+} __attribute__ ((packed)) GAR_MODULE_SETTINGS;
+
+const GAR_MODULE_SETTINGS GAR_DEFAULT_SETTINGS = {
+    50,   // output_rpm_force_n_rev
+    1000, // output_rpm_force_n
+    3000, // p_mod_applying
+    5000, // p_mod_sync
+    10,   // spc_ramp_apply
+    20,   // completed_rpm
+    90,   // sync_rpm_idle
+    350,  // sync_rpm_with_accel
+};
+
+// Copied verbatim from UN52 nvs/module_settings.h
 // Shift program basic settings
 typedef struct {
     // DEBUG - Show an 'F' marker in the gear display when the TCU
@@ -163,6 +209,19 @@ typedef struct {
     bool en_trq_req_4_3;
     // Enable torque requests for 5-4
     bool en_trq_req_5_4;
+    // When in an automatic profile, this limit determines the offset from
+    // Redline RPM before an upshift is forced, in order to stop the engine
+    // actually hitting redline. If your engine stays at the limiter and after
+    // a while the car finally upshifts, increase this threshold
+    uint16_t redline_offset_auto_upshift;
+    // If the gearbox upshifts while the kickdown switch is still held (Redline
+    // upshift, or a manual upshift), kickdown will not request another downshift
+    // until the lower gear would land at least this far below redline RPM, or until
+    // the kickdown switch is released. This stops the gearbox bouncing between gears
+    // at redline whilst still allowing kickdown again if the car slows down (EG: Uphill).
+    //
+    // UNIT: RPM
+    uint16_t kickdown_rearm_rpm_offset;
 } __attribute__ ((packed)) SBS_MODULE_SETTINGS;
 
 const SBS_MODULE_SETTINGS SBS_DEFAULT_SETTINGS = {
@@ -177,27 +236,9 @@ const SBS_MODULE_SETTINGS SBS_DEFAULT_SETTINGS = {
     .en_trq_req_3_2 = true,
     .en_trq_req_4_3 = true,
     .en_trq_req_5_4 = true,
-};
+    .redline_offset_auto_upshift = 100,
+    .kickdown_rearm_rpm_offset = 500
 
-// Pressure manager settings
-typedef struct {
-    // DEBUG: Friction coefficient when stationary (In gear)
-    uint8_t stationary_coefficient;
-    // DEBUG: Friction coefficient when releasing a clutch
-    uint8_t releasing_coefficient;
-    // DEBUG: Friction coefficient when applying a clutch (Cold)
-    uint8_t applying_coefficient_cold;
-    // DEBUG: Friction coefficient when applying a clutch (Hot)
-    uint8_t applying_coefficient_hot;
-} __attribute__ ((packed)) PRM_MODULE_SETTINGS;
-
-
-
-const PRM_MODULE_SETTINGS PRM_DEFAULT_SETTINGS = {
-    .stationary_coefficient = 100,
-    .releasing_coefficient = 120,
-    .applying_coefficient_cold = 185,
-    .applying_coefficient_hot = 140
 };
 
 // Adaptation settings
@@ -256,7 +297,7 @@ typedef struct {
     // It is disabled by default as this can
     // cause shift latency
     bool adaptation_when_manual_shifting;
-    
+
 } __attribute__ ((packed)) ADP_MODULE_SETTINGS;
 
 const ADP_MODULE_SETTINGS ADP_DEFAULT_SETTINGS = {
@@ -281,6 +322,7 @@ const ADP_MODULE_SETTINGS ADP_DEFAULT_SETTINGS = {
     .adapt_trq_5_4 = false,
     .adaptation_when_manual_shifting = false,
 };
+
 
 enum EwmSelectorType: uint8_t {
     None = 0,
@@ -333,21 +375,24 @@ typedef struct {
     bool ewm_enable_m;
     // CAN Shifter button profile selector - Enable Race (Super fast manual) mode
     bool ewm_enable_r;
-    // CAN Shifter button profile selector - Save profile for 
+    // CAN Shifter button profile selector - Save profile for
     // next start - Only applys for auto profiles (This overrides startup profile in basic options)
     bool ewm_save_profile;
-    // CAN Shifter button profile selector - Save profile for 
+    // CAN Shifter button profile selector - Save profile for
     // next start (Including manual profile options)
     bool ewm_save_profile_manual;
     // Check the WIKI. This option allows you to wire up a push button to the TCU Pin 3 (PRG) if you
     // are running the EWM shifter without a profile button (W163/Sprinter vehicles). The button
     // should be wired between VBatt and Pin 3 of the TCU, and should conduct when pressed.
     bool ewm_custom_profile_btn;
+    // When in automatic profiles (C/S/A), always show the gear number (5/4/3/2/1) on the cluster,
+    // rather than showing just 'D'
+    bool auto_show_gears_always;
 } __attribute__ ((packed)) ETS_MODULE_SETTINGS;
 
 const ETS_MODULE_SETTINGS ETS_DEFAULT_SETTINGS = {
     .trrs_has_profile_selector = true,
-    .ewm_selector_type = EwmSelectorType::Button,
+    .ewm_selector_type = EwmSelectorType::Switch, // MinTCU: Daniel's W210 EWM has the S/W switch (UN52 default: Button)
     .switch_profile_idx_top = SelectableGearboxProfile::Comfort,
     .switch_profile_idx_bottom = SelectableGearboxProfile::Standard,
     .slr_profile_idx_left = SelectableGearboxProfile::Comfort,
@@ -361,6 +406,7 @@ const ETS_MODULE_SETTINGS ETS_DEFAULT_SETTINGS = {
     .ewm_save_profile = true,
     .ewm_save_profile_manual = false,
     .ewm_custom_profile_btn = false,
+    .auto_show_gears_always = false,
 };
 
 // Release shift settings
@@ -443,59 +489,6 @@ const REL_MODULE_SETTINGS REL_DEFAULT_SETTINGS = {
         .raw_min = 10,
         .raw_max = 250,
     }
-};
-
-// Garage shift settings
-typedef struct {
-    // Number of 20ms cycles before garage shift times out
-    // and the TCU tries again
-    // UNIT: cycles
-    uint16_t timeout_cycles;
-    // Prefilling time for B2 clutch (For N to D shift)
-    // 'raw' values are the ATF Temperature (In Celcius), 'new' values
-    // are the number of 20ms cycles for prefilling (so 20 would be 400ms)
-    LinearInterpSetting prefill_time_b2;
-    // Prefilling time for B3 clutch (For N to R shift)
-    // 'raw' values are the ATF Temperature (In Celcius), 'new' values
-    // are the number of 20ms cycles for prefilling (so 20 would be 400ms)
-    LinearInterpSetting prefill_time_b3;
-
-    // Apply ramp for B2 clutch
-    // 'raw' values are the ATF Temperature (In Celcius), 'new' values
-    // are the pressure added to B2 every 20ms until it engages
-    LinearInterpSetting p_ramp_b2;
-    // Apply ramp for B3 clutch
-    // 'raw' values are the ATF Temperature (In Celcius), 'new' values
-    // are the pressure added to B2 every 20ms until it engages
-    LinearInterpSetting p_ramp_b3;
-} __attribute__ ((packed)) GAR_MODULE_SETTINGS;
-
-const GAR_MODULE_SETTINGS GAR_DEFAULT_SETTINGS = {
-    .timeout_cycles = 250,
-    .prefill_time_b2 = {
-        .new_min = 15,
-        .new_max = 4,
-        .raw_min = -10,
-        .raw_max = 80,
-    },
-    .prefill_time_b3 = {
-        .new_min = 15,
-        .new_max = 4,
-        .raw_min = -10,
-        .raw_max = 80,
-    },
-    .p_ramp_b2 = {
-        .new_min = 20,
-        .new_max = 7,
-        .raw_min = -10,
-        .raw_max = 80,
-    },
-    .p_ramp_b3 = {
-        .new_min = 20,
-        .new_max = 7,
-        .raw_min = -10,
-        .raw_max = 80,
-    },
 };
 
 // Crossover shift settings
@@ -640,33 +633,15 @@ const CRS_MODULE_SETTINGS CRS_DEFAULT_SETTINGS = {
     .pid_d_val_downshift = -15
 };
 
-// module settings
+
 extern TCC_MODULE_SETTINGS TCC_CURRENT_SETTINGS;
 extern SOL_MODULE_SETTINGS SOL_CURRENT_SETTINGS;
-extern SBS_MODULE_SETTINGS SBS_CURRENT_SETTINGS;
-extern PRM_MODULE_SETTINGS PRM_CURRENT_SETTINGS;
-extern ADP_MODULE_SETTINGS ADP_CURRENT_SETTINGS;
-extern ETS_MODULE_SETTINGS ETS_CURRENT_SETTINGS;
-extern REL_MODULE_SETTINGS REL_CURRENT_SETTINGS;
 extern GAR_MODULE_SETTINGS GAR_CURRENT_SETTINGS;
+extern PRM_MODULE_SETTINGS PRM_CURRENT_SETTINGS;
+extern SBS_MODULE_SETTINGS SBS_CURRENT_SETTINGS;
+extern ADP_MODULE_SETTINGS ADP_CURRENT_SETTINGS;
+extern REL_MODULE_SETTINGS REL_CURRENT_SETTINGS;
 extern CRS_MODULE_SETTINGS CRS_CURRENT_SETTINGS;
-
-// Setting IDx
-#define TCC_MODULE_SETTINGS_SCN_ID 0x01
-#define SOL_MODULE_SETTINGS_SCN_ID 0x02
-#define SBS_MODULE_SETTINGS_SCN_ID 0x03
-#define PRM_MODULE_SETTINGS_SCN_ID 0x05
-#define ADP_MODULE_SETTINGS_SCN_ID 0x06
-#define ETS_MODULE_SETTINGS_SCN_ID 0x07
-#define REL_MODULE_SETTINGS_SCN_ID 0x08
-#define GAR_MODULE_SETTINGS_SCN_ID 0x09
-#define CRS_MODULE_SETTINGS_SCN_ID 0x0A
-
-namespace ModuleConfiguration {
-    esp_err_t load_all_settings();
-    esp_err_t reset_settings(uint8_t idx);
-    esp_err_t write_settings(uint8_t module_id, uint16_t buffer_len, uint8_t* buffer);
-    esp_err_t read_settings(uint8_t module_id, uint16_t* buffer_len, uint8_t** buffer);
-}
+extern ETS_MODULE_SETTINGS ETS_CURRENT_SETTINGS;
 
 #endif

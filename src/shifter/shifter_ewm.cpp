@@ -1,50 +1,33 @@
 #include "shifter_ewm.h"
 #include "programselector/programselectorbuttonewm.h"
 #include "programselector/programselectorswitchewm.h"
+#include "../canbus/can_hal.h"
+#include "../nvs/eeprom_config.h"
 
-ShifterEwm::ShifterEwm(TCM_CORE_CONFIG *vehicle_config, ETS_MODULE_SETTINGS *shifter_settings)
+// Same as UN52 shifter_ewm.cpp (Without the SLR selector)
+
+ShifterEwm::ShifterEwm(const ETS_MODULE_SETTINGS *shifter_settings)
 {
-this->vehicle_config = vehicle_config;
-    switch (shifter_settings->ewm_selector_type)
-    {
-    case EwmSelectorType::Switch:
-        programselector = new ProgramSelectorSwitchEWM();
-        break;
-    case EwmSelectorType::Button:
-        programselector = new ProgramSelectorButtonEwm(vehicle_config);
-        break;
-    default:
-        programselector = nullptr;
-        break;
-    }
-}
-
-DiagProfileInputState ShifterEwm::diag_get_profile_input() {
-	// None rather than SNV (SNV means valid configuration, but no communication)
-	// None implied not configured / no program selector
-	DiagProfileInputState ret = DiagProfileInputState::None;
-	if (nullptr != this->programselector) {
-		ret = this->programselector->get_input_raw();
+	switch (shifter_settings->ewm_selector_type)
+	{
+	case EwmSelectorType::Switch:
+		programselector = new ProgramSelectorSwitchEWM();
+		break;
+	case EwmSelectorType::Button:
+		programselector = new ProgramSelectorButtonEwm();
+		break;
+	default:
+		programselector = nullptr;
+		break;
 	}
-	return ret;
 }
 
-ShifterPosition ShifterEwm::get_shifter_position(const uint32_t expire_time_ms)
-{
-	ShifterPosition pos = ShifterPosition::SignalNotAvailable;
-	if (nullptr != egs_can_hal) {
-
-		pos = egs_can_hal->internal_can_shifter_get_shifter_position(expire_time_ms);
-	}
-	return pos;
-}
-
-AbstractProfile *ShifterEwm::get_profile(const uint32_t expire_time_ms)
+AbstractProfile *ShifterEwm::get_profile(void)
 {
 	AbstractProfile *result = nullptr;
 	if (nullptr != programselector)
 	{
-		result = programselector->get_profile(expire_time_ms);
+		result = programselector->get_profile();
 	} else {
 		// null selector can be if the selector has no profile button (Jeep/Sprinter)
 		result = profiles[VEHICLE_CONFIG.default_profile];
@@ -71,4 +54,9 @@ void ShifterEwm::set_program_button_pressed(const bool is_pressed, const Profile
 
 ShifterStyle ShifterEwm::get_shifter_type() {
 	return ShifterStyle::EWM;
+}
+
+void ShifterEwm::update(void)
+{
+	set_program_button_pressed(egs_can_hal->get_profile_btn_press(expire_time_ms), egs_can_hal->get_profile_switch_pos(expire_time_ms));
 }

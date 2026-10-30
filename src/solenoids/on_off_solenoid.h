@@ -1,25 +1,33 @@
 #ifndef ON_OFF_SOLENOID_H
 #define ON_OFF_SOLENOID_H
 
-#include "pwm_solenoid.h"
-//#include "driver/gptimer.h"
+#include <stdint.h>
 
-class OnOffSolenoid : public PwmSolenoid {
+/**
+ * Shift solenoid (Y3/Y4/Y5), ported from UN52 on_off_solenoid.cpp.
+ * When switched on it gets full power for on_time_ms, then it is held at hold_pwm (out of 4096,
+ * at cc_vref_solenoid battery voltage, scaled for the real battery voltage), same as UN52.
+ *
+ * Uses analogWrite(), so the pin must be a PWM pin that is not on Timer1 (Timer1 = MPC/SPC).
+ */
+class OnOffSolenoid {
 public:
-    explicit OnOffSolenoid(const char *name, ledc_timer_t ledc_timer, gpio_num_t pwm_pin, ledc_channel_t channel, adc_channel_t read_channel, uint32_t on_time_ms, uint16_t hold_pwm, uint16_t phase_duration_ms);
-    void __write_pwm(float vref_compensation, float temperature_factor);
-    void on(void);
-    void off(void);
-    /* unused */
-    // bool is_on(void);
-    // bool is_max_on(void);
-
+    OnOffSolenoid(const char* name, uint8_t pwm_pin, uint32_t on_time_ms, uint16_t hold_pwm);
+    void on();
+    void off();
+    bool is_on() const { return this->state; }
+    /**
+     * @brief Call every gearbox cycle (20ms) with the battery voltage (UINT16_MAX if not available)
+     */
+    void update(uint16_t battery_mv);
 private:
-    uint32_t on_time_ms = 0u;
-    uint32_t target_on_time;
-    uint16_t target_hold_pwm;
+    const char* name;
+    uint8_t pin;
     bool state = false;
     bool holding = false;
+    uint32_t on_time_ms = 0;
+    uint32_t target_on_time;
+    uint16_t target_hold_pwm;
 };
 
 #endif

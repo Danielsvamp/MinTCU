@@ -3,21 +3,22 @@
 
 #include "shifter.h"
 #include "../nvs/module_settings.h"
-#include "programselector/programselector.h"
-#include "../../egs52_ecus/src/EWM.h"
+#include "programselector/programselector.hpp"
 
-class ShifterEwm : public Shifter
+/*
+    The program selector part of UN52 shifter_ewm.h (The gearbox reads the selector position from
+    the CAN layer directly). No SLR selector and no diagnostics.
+*/
+class ShifterEwm
 {
 public:
-	ShifterEwm(TCM_CORE_CONFIG* vehicle_config, ETS_MODULE_SETTINGS* shifter_settings);
-	ShifterPosition get_shifter_position(const uint32_t expire_time_ms) override;
-	AbstractProfile* get_profile(const uint32_t expire_time_ms) override;
+	ShifterEwm(const ETS_MODULE_SETTINGS* shifter_settings);
+	AbstractProfile* get_profile(void);
 	void set_program_button_pressed(const bool is_pressed, const ProfileSwitchPos pos);
-	DiagProfileInputState diag_get_profile_input() override;
-	ShifterStyle get_shifter_type() override;
+	ShifterStyle get_shifter_type(void);
+	void update(void);
 private:
-	bool state = false;
-	bool esp_toggle = false;
+	const uint32_t expire_time_ms = 250u;
 	ProgramSelector* programselector;
 };
 

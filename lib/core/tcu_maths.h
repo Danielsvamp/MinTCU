@@ -2,6 +2,13 @@
 #define TCU_MATHS_H
 
 #include <stdint.h>
+#ifdef __AVR__
+    // MinTCU: the AVR copies every const table into RAM unless it is in PROGMEM (flash)
+    #include <avr/pgmspace.h>
+    #define TCU_FLASH PROGMEM
+#else
+    #define TCU_FLASH
+#endif
 
 // Core maths and calculation stuff this the TCM uses
 
@@ -20,7 +27,7 @@ typedef struct {
 
 #define RAMP_FUNC_INTERP_POINTS 21
 
-const static interp_mapping_t EASE_IN_EASE_OUT_INTERP_LOOKUP[RAMP_FUNC_INTERP_POINTS] = {
+const static interp_mapping_t EASE_IN_EASE_OUT_INTERP_LOOKUP[RAMP_FUNC_INTERP_POINTS] TCU_FLASH = {
     {0,   0.00},
     {5,   0.61},
     {10,  2.45},
@@ -44,7 +51,7 @@ const static interp_mapping_t EASE_IN_EASE_OUT_INTERP_LOOKUP[RAMP_FUNC_INTERP_PO
     {100, 100.00},
 };
 
-const static interp_mapping_t EASE_IN_INTERP_LOOKUP[RAMP_FUNC_INTERP_POINTS] = {
+const static interp_mapping_t EASE_IN_INTERP_LOOKUP[RAMP_FUNC_INTERP_POINTS] TCU_FLASH = {
     {0,   0.00},
     {5,   0.30},
     {10,  1.23},
@@ -68,7 +75,7 @@ const static interp_mapping_t EASE_IN_INTERP_LOOKUP[RAMP_FUNC_INTERP_POINTS] = {
     {100, 100.00},
 };
 
-const static interp_mapping_t EASE_OUT_INTERP_LOOKUP[RAMP_FUNC_INTERP_POINTS] = {
+const static interp_mapping_t EASE_OUT_INTERP_LOOKUP[RAMP_FUNC_INTERP_POINTS] TCU_FLASH = {
     {0,   0.00},
     {5,   7.85},
     {10, 15.64},
@@ -107,10 +114,6 @@ typedef struct {
 } __attribute__ ((packed)) LinearInterpSetting;
 
 
-float scale_number(float raw, float new_min, float new_max, float raw_min, float raw_max);
-float scale_number(float raw, const LinearInterpSetting* settings);
-// Faster version of [scale_number], mainly used for ISRs where float cannot be used
-int scale_number_int(int raw, int new_min, int new_max, int raw_min, int raw_max);
 float interpolate_float(float raw, float new_min, float new_max, float raw_min, float raw_max, InterpType interp_type);
 
 /**
@@ -123,7 +126,8 @@ float interpolate_float(float raw, float new_min, float new_max, float raw_min, 
  * @param raw_max Raw input value maximum value
  * @return Interpolated value
  */
-int interpolate_int(int raw, int new_min, int new_max, int raw_min, int raw_max);
+// MinTCU: int32_t (int in UN52, which is 32 bit on the ESP32)
+int32_t interpolate_int(int32_t raw, int32_t new_min, int32_t new_max, int32_t raw_min, int32_t raw_max);
 
 
 float interpolate_float(float raw, const LinearInterpSetting* settings, InterpType interp_type);
@@ -140,10 +144,12 @@ float progress_between_targets(const float current, const float start, const flo
 /// @return the interpolated function value
 float interpolate(const float f_1, const float f_2, const int16_t x_1, const int16_t x_2, const float x);
 
-int linear_ramp_with_timer(int start, int end, int current_timer_val);
+// MinTCU: int32_t (int in UN52, which is 32 bit on the ESP32)
+int32_t linear_ramp_with_timer(int32_t start, int32_t end, int32_t current_timer_val);
 short linear_interp_with_percentage(uint16_t percentage, short new_value, short last_filtered_val);
 
-inline int32_t first_order_filter(uint8_t sample_count, int32_t new_val, int32_t last_val);
-inline float first_order_filter_f(uint8_t sample_count, int32_t new_val, float last_val);
+int32_t first_order_filter(uint8_t sample_count, int32_t new_val, int32_t last_val);
+int16_t clampint16(int32_t value);
+float first_order_filter_f(uint8_t sample_count, int32_t new_val, float last_val);
 
 #endif // TCU_MATHS_H

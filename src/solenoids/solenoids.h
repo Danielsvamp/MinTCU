@@ -2,46 +2,34 @@
 #define SOLENOID_H
 
 #include <stdint.h>
-#include "pwm_solenoid.h"
-//#include "inrush_solenoid.h"
-//#include "on_off_solenoid.h"
 #include "cc_solenoid.h"
+#include "on_off_solenoid.h"
+#include "inrush_solenoid.h"
 
-#define I2S_LOOP_INTERVAL_CC_ONLY 10
-#define I2S_LOOP_INVERVAL_ALL 20
+// Timer1 fast PWM, TOP = ICR1. 16MHz / (1 * (15999 + 1)) = 1kHz, same frequency as UN52
+#define SOLENOID_PWM_TOP 15999u
 
 namespace Solenoids {
     /**
-     * @brief Tries to initialize all the solenoids on the transmission (MPC,SPC,TCC,Y3,Y4,Y5)
-     * 
-     * @return true All solenoids initialized OK
-     * @return false A solenoid failed to initialize
+     * @brief Sets up Timer1 for 1kHz PWM on pins 11 (MPC) and 12 (SPC), both at 0% duty,
+     * the Y3/Y4/Y5 shift solenoids (off) and the TCC solenoid (Timer3, pin 5, 0%).
      */
     void init_all_solenoids(void);
-    uint16_t get_solenoid_voltage(void);
-
-    void boot_solenoid_test(void*);
-
-    bool init_routine_completed(void);
-
-    void notify_diag_test_start(void);
-    void notify_diag_test_end(void);
-
-    // bool startup_test_ok();
+    /**
+     * @brief Writes the shift solenoid PWM, call every gearbox cycle
+     */
+    void update_shift_solenoids(uint16_t battery_mv);
+    /**
+     * @brief All shift solenoids off (Limp: 2nd in D, R)
+     */
+    void shift_solenoids_off(void);
 }
 
-//extern OnOffSolenoid *sol_y3;
-//extern OnOffSolenoid *sol_y4;
-//extern OnOffSolenoid *sol_y5;
-
 extern ConstantCurrentSolenoid *sol_mpc;
-//extern ConstantCurrentSolenoid *sol_spc;
-//extern InrushControlSolenoid *sol_tcc;
-
-extern float resistance_spc;
-extern float resistance_mpc;
-
-extern bool temp_cal;
-extern int16_t temp_at_test;
+extern ConstantCurrentSolenoid *sol_spc;
+extern OnOffSolenoid *sol_y3;
+extern OnOffSolenoid *sol_y4;
+extern OnOffSolenoid *sol_y5;
+extern InrushControlSolenoid *sol_tcc;
 
 #endif // SOLENOID_H

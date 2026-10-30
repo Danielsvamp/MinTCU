@@ -1,73 +1,51 @@
 #include "solenoids.h"
-//#include "esp_log.h"
-//#include "esp_adc/adc_cali.h"
-//#include "esp_adc/adc_cali_scheme.h"
 #include "board_config.h"
-#include "../sensors.h"
-//#include "soc/i2s_periph.h"
-#include "string.h"
-//#include "esp_adc/adc_continuous.h"
-//#include "esp_adc/adc_oneshot.h"
-//#include "esp_check.h"
-//#include "../nvs/module_settings.h"
-#include "clock.hpp"
-//#include "esp_timer.h"
-#include "tcu_io/tcu_io.hpp"
+#include <Arduino.h>
+#include <util/atomic.h>
 
 ConstantCurrentSolenoid* sol_mpc = nullptr;
+ConstantCurrentSolenoid* sol_spc = nullptr;
+OnOffSolenoid* sol_y3 = nullptr;
+OnOffSolenoid* sol_y4 = nullptr;
+OnOffSolenoid* sol_y5 = nullptr;
+InrushControlSolenoid* sol_tcc = nullptr;
 
-bool write_pwm = true;
-
-void update_solenoids(void*) {
-    int16_t atf_temp = 250;
-    float vref_compensation = 1.0;
-    float temp_compensation = 1.0;
-    uint16_t vbatt = TCUIO::battery_mv();
-    int16_t atf = TCUIO::atf_temperature();
-    while (true) {
-        vbatt = TCUIO::battery_mv();
-        atf = TCUIO::atf_temperature();
-        if (UINT16_MAX != vbatt) {
-            voltage = vbatt;
-            vref_compensation = (float)SOL_CURRENT_SETTINGS.cc_vref_solenoid / (float)voltage;
-        }
-        else {
-            vref_compensation = 1.0;
-        }
-        if (INT16_MAX != atf) {
-            atf_temp = atf * 10.0;
-            temp_compensation = (((atf_temp - (SOL_CURRENT_SETTINGS.cc_reference_temp * 10.0)) / 10.0) * SOL_CURRENT_SETTINGS.cc_temp_coefficient_wires) / 10.0;
-        }
-        if (write_pwm) {
-            // MOVED TO CURRENT READING TASK SO READINGS ARE SYNCED
-        }
-        vTaskDelay(1); // Max we can do at 1000hz
+void Solenoids::init_all_solenoids() {
+    ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+        // Stop Timer1 while configuring it
+        TCCR1B = 0;
+        TCCR1A = 0;
+        TCNT1 = 0;
+        OCR1A = 0;
+        OCR1B = 0;
+        ICR1 = SOLENOID_PWM_TOP;
+        // Mode 14 (Fast PWM, TOP = ICR1). The outputs (COM1A1 / COM1B1) are only connected
+        // by ConstantCurrentSolenoid when the duty is above 0
+        TCCR1A = _BV(WGM11);
+        // No prescaler
+        TCCR1B = _BV(WGM13) | _BV(WGM12) | _BV(CS10);
     }
+    // Pins are already outputs and LOW (initPins)
+    sol_mpc = new ConstantCurrentSolenoid("MPC", ConstantCurrentSolenoid::Timer1Channel::A);
+    sol_spc = new ConstantCurrentSolenoid("SPC", ConstantCurrentSolenoid::Timer1Channel::B);
+    // Same on time and hold PWM as UN52 (250ms full on, then 1524/4096 at 12V)
+    sol_y3 = new OnOffSolenoid("Y3", toRaw(Pin::y3_pwm), 250, 1524);
+    sol_y4 = new OnOffSolenoid("Y4", toRaw(Pin::y4_pwm), 250, 1524);
+    sol_y5 = new OnOffSolenoid("Y5", toRaw(Pin::y5_pwm), 250, 1524);
+    // Same as UN52 (100Hz, ~700mA for TCC solenoid when holding)
+    sol_tcc = new InrushControlSolenoid("TCC", 100, 700, 10);
+    sol_tcc->set_duty(0);
+    sol_tcc->isr_enable();
 }
 
-float resistance_mpc = 5.0;
-float resistance_spc = 5.0;
-bool temp_cal = false;
-int16_t temp_at_test = 25;
-
-bool routine = false;
-bool startup_ok = false;
-
-
-uint16_t Solenoids::get_solenoid_voltage(void) {
-    return voltage;
+void Solenoids::update_shift_solenoids(uint16_t battery_mv) {
+    sol_y3->update(battery_mv);
+    sol_y4->update(battery_mv);
+    sol_y5->update(battery_mv);
 }
 
-bool Solenoids::init_routine_completed(void) {
-    return routine;
-}
-
-// bool Solenoids::startup_test_ok() {
-//     return startup_ok;
-// }
-
-void Solenoids::init_all_solenoids()
-{
-    SolenoidSetup::init_adc();
-    sol_mpc = new ConstantCurrentSolenoid("MPC", ledc_timer_t::LEDC_TIMER_0, pcb_gpio_matrix->mpc_pwm, ledc_channel_t::LEDC_CHANNEL_3, ADC_CHANNEL_6, 1);
+void Solenoids::shift_solenoids_off() {
+    sol_y3->off();
+    sol_y4->off();
+    sol_y5->off();
 }

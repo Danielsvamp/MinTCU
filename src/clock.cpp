@@ -1,5 +1,5 @@
 #include "clock.hpp"
-#include <arduino.h>
+#include <Arduino.h>
 
 //millis should work here I think?
 
