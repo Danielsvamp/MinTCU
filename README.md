@@ -42,7 +42,7 @@ The W124 has no CAN of its own, so the EDC15 and the EWM are the only things on 
 
 - Reads engine torque, RPM, pedal and coolant temperature from the engine ECU over CAN (EGS51 or EGS52 frames).
 - Reads the selector, + / -, kickdown and the program switch (or button) from the EWM.
-- **Listens only. MinTCU never sends anything on CAN**, so there are no torque requests to the engine and nothing on the cluster.
+- Sends one frame to the engine ECU (GS_218): the gears, the converter state and a torque request during shifts, so the engine backs off while the clutches change over. It only starts sending once it is receiving the car's frames (see [CAN](#how-it-works-in-detail) below). Nothing is sent to the cluster.
 - Reads the N2/N3 input speed sensors, the ATF temperature / park-neutral circuit, battery voltage and (optionally) an output speed sensor.
 - Line and shift pressure (MPC, SPC), garage shifts (P/N to D/R), automatic shifting with all six UN52 profiles, manual + / - shifts, torque converter lock-up (TCC) with adaptation saved to EEPROM.
 - Failsafe and limp mode, with a fault memory in EEPROM.
@@ -117,7 +117,7 @@ Everything is set in the source. These are the places to look:
 
 - `src/board_config.h`: pins, the MCP2515 crystal (`CAN_CRYSTAL`), the real 5 V of your board (`ADC_VREF_MV`), the battery divider and the ATF pull-up.
 - `src/nvs/eeprom_config.cpp` (`VEHICLE_CONFIG`, UN52 names):
-  - `egs_can_type`: 1 = EGS51 frames, 2 = EGS52 frames. Default 1 (EDC15C6 from an EGS51 car).
+  - `egs_can_type`: 1 = EGS51 frames, 2 = EGS52 frames. Default 2: the EDC15C6 sends its torque in MS_312/MS_212 (from its CAN frame map, not checked on the car yet). If the log shows `failsafe` 2 (no torque) with the engine running, try 1.
   - `engine_type`: 0 = diesel, 1 = petrol. Picks the shift maps and the redline (`red_line_rpm_diesel` / `red_line_rpm_petrol`).
   - `input_sensor_pulses_per_rev`: pulses per revolution of your output speed sensor. Leave it at 0 until the sensor is fitted.
   - `diff_ratio`, `wheel_circumference`, `engine_drag_torque`: the UN52 defaults, change them for your car.
@@ -166,13 +166,14 @@ Without a valid calibration MinTCU stays in failsafe (flag `10` in the log).
 
 ## Serial log (115200, 10 Hz, CSV)
 
-`ms,rpm,n2,n3,input_rpm,output_rpm,ratio,pedal,trq_sta,trq_drv,trq_in,shifter,gear,atf,vbatt,mpc_targ,mpc_corr,mpc_ma,mpc_ma_est,duty_permille,spc_ma,shift_sol,garage,shift,tcc,slip,prof,faults,failsafe,can_ovf`
+`ms,rpm,n2,n3,input_rpm,output_rpm,ratio,pedal,trq_sta,trq_drv,trq_in,shifter,gear,atf,vbatt,mpc_targ,mpc_corr,mpc_ma,mpc_ma_est,duty_permille,spc_ma,shift_sol,garage,shift,tcc,slip,trq_req,prof,faults,failsafe,can_ovf`
 
 - `output_rpm` ends with `e` when it is calculated (no output speed sensor), `ratio` is input/output speed (0 when stopped or in P/N)
 - `shift_sol` is the active shift circuits in hex: 1 = 1-2 (Y3), 2 = 2-3 (Y5), 4 = 3-4 (Y4), 8 = 4-5 (Y3)
 - `garage` is `S<stage>.<substage>` during a garage shift, otherwise the last result: 0 = none yet, 1 = OK, 2 = aborted, 3 = skipped (no input speed)
 - `shift` is `C<n>.<phase>` (crossover) or `R<n>.<phase>` (releasing) during an up/downshift, `n` is the UN52 `GearChange` (1 = 1-2, 2 = 2-3, 3 = 3-4, 4 = 4-5, 5 = 2-1, 6 = 3-2, 7 = 4-3, 8 = 5-4). Otherwise the last result: 0 = none yet, 1 = OK, 2 = failed, 3 = aborted
 - `tcc` is `O` (open) or `S` (slipping / locked) and the TCC pressure in mbar, `slip` is engine RPM - input RPM
+- `trq_req` is the torque the engine is asked for (Nm, same scale as `trq_sta`), empty when there is no request, `L` while the CAN controller is listen-only
 - `prof` is the profile letter (S C W A M R), with a `K` after it while kickdown is pressed
 - `faults` is the fault bits seen since the engine was started (see Limp mode / Fault memory below)
 - `gear` numbers are the UN52 `GearboxGear` enum (1 = 1st ... 5 = 5th, 8 = P, 9 = N, 10 = R1)
@@ -184,10 +185,14 @@ Without a valid calibration MinTCU stays in failsafe (flag `10` in the log).
 
 The pressure part of UN52, garage shifts (N/P to D/R), automatic shifting with the UN52 profiles, and + / - on the selector:
 
-- CAN (MCP2515), EGS51 or EGS52 frame set, chosen with `egs_can_type` in `src/nvs/eeprom_config.cpp` (UN52 numbers: 1 = EGS51, 2 = EGS52). Default is EGS51 (W210 EDC15C6 from an EGS51 car).
+- CAN (MCP2515), EGS51 or EGS52 frame set, chosen with `egs_can_type` in `src/nvs/eeprom_config.cpp` (UN52 numbers: 1 = EGS51, 2 = EGS52). Default is EGS52: the W210 EDC15C6 sends its torque in MS_312/MS_212, not MS_310 (from the EDC15C6 CAN frame map, not checked on the car yet). If the log shows `failsafe` 2 (no torque) with the engine running, try 1.
   - EGS51: torque (MS_310), pedal + ESP torque (MS_210), RPM (MS_308), coolant temp (MS_608)
   - EGS52: torque (MS_312, MS_212), pedal (MS_210), RPM (MS_308), coolant temp (MS_608)
   - Both: shifter, kickdown and program button / switch (EWM_230)
+  - Sending: GS_218 to the engine every 20 ms, same as UN52.
+    - EGS52 (`Egs52Can`, 8 bytes): actual and target gear, TCC open/slipping/closed, gearbox OK, garage shift (`KS`), start release (`ALF`, always on like UN52's start value; UN52 also clears it outside P/N, MinTCU does not, the W124 starter lockout is wired), and the torque request (`M_EGS`, `MMIN_EGS`/`MMAX_EGS`, `DYN0`/`DYN1`) with UN52's 40 ms toggle, parity and frame counter. UN52 also sends GS_338 (speeds) and GS_418 (cluster), MinTCU does not.
+    - EGS51 (`Egs51Can`, 6 bytes): actual and target gear, P/N, TCC open/slipping/closed, TCC torque multiplier, gearbox OK, garage shift, and the torque request (`TORQUE_REQ`, 3 Nm steps, with the engine drag torque added back like UN52). UN52 also sends GS_418, MinTCU does not.
+  - The MCP2515 starts in listen-only mode (it never ACKs or sends). It goes to normal mode only once the car's frames are being received, which proves the bit rate and `CAN_CRYSTAL`. It goes back to listen-only when nothing has been received for 500 ms (ignition off; MinTCU's number), and for good (until the next power up) if it ever goes bus-off. `trq_req` in the log shows `L` while it is listening only.
 - Speed sensors: N2 and N3 (pins 18/19, 60 pulses/rev) give the input shaft speed like UN52 (`calc_turbine_rpm`). A dedicated output speed sensor goes on pin 3. Its pulses per rev go in `input_sensor_pulses_per_rev` (UN52 name) in `src/nvs/eeprom_config.cpp`, while that is 0 the output sensor is not used. The pins take a clean 0/5 V square wave, condition the sensor signals first.
 - MPC pressure from input torque (with the torque converter multiplication from the input speed), same calculation as UN52 (`find_working_mpc_pressure` -> `calc_current_linear_sol` -> pcs map -> mA).
 - No current sensing: the PWM duty is calculated from the wanted current, the battery voltage and the coil resistance at ATF temperature (open loop, see `src/solenoids/cc_solenoid.h`).
@@ -202,7 +207,7 @@ The pressure part of UN52, garage shifts (N/P to D/R), automatic shifting with t
   - UN52 does not read the program button or switch for EGS51 cars. The EWM sends the same frame there, so MinTCU uses UN52's EGS52 code for both.
   - `prof` in the log shows the profile, so you can check which way round your switch is.
 - + / - on the EWM, same as UN52: in D asks for one gear up or down, in any profile. The shift is refused if the engine would go below 900 RPM (upshift) or above redline - 100 (downshift). The manual profile only downshifts on its own when the input speed is below 300 RPM with the pedal released, and upshifts at the redline. The UN52 crossover and releasing shift algorithms (`src/shifting_algo/`) run with the original shift calibration (SM06 for 210.016). Differences from UN52:
-  - Torque requests, same as UN52: during an up/downshift the shift algorithm asks the engine for less torque (GS_218 `TORQUE_REQ`, in 3 Nm steps, with the engine drag torque added back like UN52), and the torque used for the pressures is held while it does (UN52's torque freeze). Which shifts ask is `en_trq_req_1_2` ... `en_trq_req_5_4` in `SBS_CURRENT_SETTINGS` (UN52 defaults). With the EGS52 frame set, or while the CAN controller is listen-only, the algorithms are told requests are off, and they add pressure instead (UN52 with torque requests off).
+  - Torque requests, same as UN52: during an up/downshift the shift algorithm asks the engine for less torque (GS_218), and the torque used for the pressures is held while it does (UN52's torque freeze). Which shifts ask is `en_trq_req_1_2` ... `en_trq_req_5_4` in `SBS_CURRENT_SETTINGS` (UN52 defaults). While the CAN controller is listen-only, the algorithms are told requests are off, and they add pressure instead (UN52 with torque requests off).
   - Not tested on a car yet: whether the EDC15C6 acts on the request has to be checked in the log (`trq_sta` should drop during a shift when `trq_req` has a value).
   - Fixed from UN52: `TCC_MULTI` in GS_218 is `bool TCC_MULTI: 8` in UN52's `GS51.h`, so UN52 sends 0x01 instead of 100-254. MinTCU's copy uses `uint8_t`.
   - No shift adaptation.
