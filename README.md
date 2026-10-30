@@ -7,6 +7,10 @@ Yes this code is borrowed from UN52 because it works well, I can use stock calib
 
 I've never touched c++, I'm learning while doing, I'm realizing it takes a while
 
+---
+
+The vibecoding begins 😬
+
 > **Status: not tested on a car yet.** The firmware compiles and has only been run in a simulator (simavr) with fake sensors and CAN frames. It has not driven a real gearbox. Until it has, treat everything below as "should work", and be ready for the gearbox to sit in limp mode.
 
 ## Contents
