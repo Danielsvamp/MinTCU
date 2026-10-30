@@ -14,8 +14,10 @@ TCM_CORE_CONFIG VEHICLE_CONFIG = {
     .red_line_rpm_petrol = 6000,
     .engine_type = 0, // 0 = diesel, 1 = petrol
     // MinTCU: CAN frames the engine ECU sends (Same numbers as UN52): 1 = EGS51, 2 = EGS52
-    // W210 EDC15C6 from an EGS51 car (722.634) = 1
-    .egs_can_type = 1,
+    // The W210 EDC15C6 sends its torque in MS_312/MS_212 (EGS52 frames), not MS_310 (Found from the
+    // EDC15C6 CAN frame map, not checked on Daniel's car yet). If the log shows failsafe 2 (no torque)
+    // with the engine running, try 1
+    .egs_can_type = 2,
     .shifter_style = 0, // EWM
     // MinTCU: 1 = dedicated output speed sensor on Pin::io_pin (Hall sensor)
     .io_0_usage = 1,
