@@ -5,6 +5,10 @@ Yes this code is borrowed from [ultimate-nag52-fw](https://github.com/rnd-ash/ul
 
 I've never touched c++, I'm learning while doing, I'm realizing it takes a while
 
+---
+
+The vibecoding begins 😬
+
 ## What runs right now
 
 The pressure part of UN52, garage shifts (N/P to D/R), automatic shifting with the UN52 profiles, and + / - on the selector:
