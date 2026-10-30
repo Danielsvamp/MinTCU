@@ -19,6 +19,7 @@ The vibecoding begins 😬
 - [What it does](#what-it-does)
 - [What you need](#what-you-need)
 - [Wiring](#wiring)
+- [The 722.6 gearbox plug](#the-7226-gearbox-plug)
 - [Build and flash](#build-and-flash)
 - [Set it up for your car](#set-it-up-for-your-car)
 - [Calibration](#calibration)
@@ -36,7 +37,7 @@ The car this is built for is a W124 that has been given:
 - the W210 CAN selector lever (EWM) with the S/W switch,
 - the W210 EDC15C6 (CR2) engine ECU, from an EGS51 car.
 
-The W124 has no CAN of its own, so the EDC15 and the EWM are the only things on the bus. MinTCU listens to them and drives the gearbox. Any car with a 722.6, an EWM and an engine ECU that sends the EGS51 or EGS52 CAN frames should be close, but you will need the calibration for your gearbox (see [Calibration](#calibration)) and you will have to check the settings for your car.
+The W124 has no CAN of its own, so the EDC15 and the EWM are the only things on the bus. MinTCU reads them, drives the gearbox, and sends the engine the gearbox frame with torque requests during shifts. Any car with a 722.6, an EWM and an engine ECU that sends the EGS51 or EGS52 CAN frames should be close, but you will need the calibration for your gearbox (see [Calibration](#calibration)) and you will have to check the settings for your car.
 
 ## What it does
 
@@ -72,7 +73,7 @@ What it does not do (yet):
 
 - Engine ECU sending EGS51 frames (MS_310, MS_210, MS_308, MS_608) or EGS52 frames (MS_312, MS_212, MS_210, MS_308, MS_608).
 - An EWM selector (EWM_230 frame).
-- The 722.6 electrical plug: the solenoids, N2/N3 and the ATF temperature sensor.
+- The 722.6 electrical plug: the solenoids, N2/N3 and the ATF temperature sensor (see [The 722.6 gearbox plug](#the-7226-gearbox-plug)).
 
 **Software**
 
@@ -102,6 +103,32 @@ All of it is in `src/board_config.h`. Check it against your board before flashin
 | 50 / 51 / 52 | MCP2515 SO / SI / SCK | the Mega's SPI pins |
 
 The solenoids are switched on their ground side: battery + to the solenoid, solenoid to the MOSFET drain, source to ground. The flyback diode goes across the solenoid (cathode to battery +).
+
+## The 722.6 gearbox plug
+
+From the ATSG 722.6 manuals (2004 and 2009 editions). The gearbox has one 13 pin round plug on the electrical conductor plate (pin 5 is not used). All six solenoids share battery + on pin 6, and the TCU switches each one to ground, which is exactly what the low side MOSFETs do.
+
+| Plug pin | EGS terminal | What it is | MinTCU | Check |
+| --- | --- | --- | --- | --- |
+| 6 | 38 | Battery + for all solenoids | switched 12 V (solenoid supply, also to the battery divider on A1) | battery voltage |
+| 2 | 36 | MPC (modulating pressure) solenoid, ground side | MOSFET on pin 11 | 5.5 Ω (2.5-6.5 Ω) to pin 6 |
+| 10 | 37 | SPC (shift pressure) solenoid, ground side | MOSFET on pin 12 | 5.5 Ω (2.5-6.5 Ω) to pin 6 |
+| 13 | 14 | Y3, 1-2 / 4-5 shift solenoid, ground side | MOSFET on pin 6 | 4.5 Ω (2.5-6.5 Ω) to pin 6 |
+| 9 | 15 | Y4, 3-4 shift solenoid, ground side | MOSFET on pin 7 | 4.5 Ω (2.5-6.5 Ω) to pin 6 |
+| 8 | 16 | Y5, 2-3 shift solenoid, ground side | MOSFET on pin 8 | 4.5 Ω (2.5-6.5 Ω) to pin 6 |
+| 11 | 17 | TCC (PWM lock-up) solenoid, ground side | MOSFET on pin 5 | 2.7 Ω (2.0-4.0 Ω) to pin 6 |
+| 7 | 13 | N2/N3 sensor supply | see below | 5 V (2009 manual), 4-8 V (2004 manual) |
+| 3 | 12 | N2 signal | pin 18 (conditioned) | pulses |
+| 1 | 35 | N3 signal | pin 19 (conditioned) | pulses |
+| 4 | 34 | ATF temperature sensor in series with the park/neutral contact | A0, with the pull-up | see below |
+| 12 | 33 | Sensor ground (N2, N3, ATF) | Mega GND | 0.01 V or less to ground |
+| 5 | | not used | | |
+
+"EGS terminal" is the pin on the original TCU's plug, handy when you tap into the car's harness instead of making a new one. The two manuals list different wire colours for the same pins, so go by the pin numbers, not the colours. The resistances are measured between pin 6 and the solenoid's pin, with the plug off. The first number is the 2004 manual's nominal value, the range is from the 2009 manual. The harness adds to it, which is why `cc_reference_resistance` should be measured at the TCU end.
+
+- **N2 / N3** are Hall effect sensors. N2 reads the front sun gear and N3 the front planetary carrier, so they read the same speed in 2nd, 3rd and 4th only. N3 reads nothing useful in 1st and 5th, and N2 nothing in reverse. That is why MinTCU (like UN52) only compares them in 2nd-4th. What the signal looks like (open collector or a driven output) is not in the manuals, so check it with a scope or meter before you design the conditioning.
+- **ATF sensor and park/neutral contact**: the sensor (a PTC, about 1 kΩ at 25 °C) is in series with a reed contact that opens in P and N. So in P/N pin 4 reads open (MinTCU sees that as the parking lock, `ATF_PLL_OPEN_ADC`), and the temperature can only be read in R or D. The ATSG table (564 Ω at -40 °C, 957 Ω at 20 °C, 1450 Ω at 80 °C, 1855 Ω at 120 °C) is within about 2 % of the KTY83 table MinTCU uses from UN52, so the reading should be within a couple of degrees.
+- **Original EGS limp mode**, for comparison: on an electrical fault it holds the current gear until the car stops and the engine has been off for 10 s, then gives 2nd (hydraulic). On a mechanical/hydraulic fault it gives 3rd. Reverse always works. MinTCU's own limp mode is different, see [How it works](#how-it-works-in-detail).
 
 ## Build and flash
 
@@ -153,7 +180,8 @@ Without a valid calibration MinTCU stays in failsafe (flag `10` in the log).
 5. Set `egs_can_type` and, once the output sensor is fitted, `input_sensor_pulses_per_rev` in `src/nvs/eeprom_config.cpp`.
 6. Put an ammeter in series with the MPC once and compare it with the `mpc_ma_est` column.
 7. Check which way round the S/W switch is with the `prof` log column, and pick the two profiles with `switch_profile_idx_top` / `switch_profile_idx_bottom` in `src/nvs/module_settings.h`.
-8. First drive: watch the log. `failsafe` should be `0` with the engine running, and N2/N3 should agree in 2nd, 3rd and 4th.
+8. Check each solenoid's resistance at the gearbox plug against [the table above](#the-7226-gearbox-plug) before connecting MinTCU.
+9. First drive: watch the log. `failsafe` should be `0` with the engine running, and N2/N3 should agree in 2nd, 3rd and 4th. During a shift with a value in `trq_req`, `trq_sta` should drop, which shows the EDC15 acts on the torque request.
 
 ## Using it
 
@@ -175,7 +203,7 @@ Without a valid calibration MinTCU stays in failsafe (flag `10` in the log).
 - `tcc` is `O` (open) or `S` (slipping / locked) and the TCC pressure in mbar, `slip` is engine RPM - input RPM
 - `trq_req` is the torque the engine is asked for (Nm, same scale as `trq_sta`), empty when there is no request, `L` while the CAN controller is listen-only
 - `prof` is the profile letter (S C W A M R), with a `K` after it while kickdown is pressed
-- `faults` is the fault bits seen since the engine was started (see Limp mode / Fault memory below)
+- `faults` is the fault bits seen since the engine was started (see Limp mode / Fault memory above)
 - `gear` numbers are the UN52 `GearboxGear` enum (1 = 1st ... 5 = 5th, 8 = P, 9 = N, 10 = R1)
 - `atf` ends with `s` when the sensor is missing and 120 C is used for the pressure map
 - `failsafe` is hex bit flags: 1 = engine off, 2 = no torque, 4 = no shifter, 8 = recovering, 10 = no calibration, 20 = limp mode
