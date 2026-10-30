@@ -52,31 +52,31 @@ TorqueConverter::TorqueConverter(uint16_t max_gb_rating)  {
         this->rated_max_torque = TCC_CURRENT_SETTINGS.tcc_max_trq_override;
     }
 
-    this->tcc_adapt_map_d1 = new StoredMap(NVS_KEY_TCC_ADAPT_MAP_1, TCC_ADAPT_MAP_Z_SIZE, TCC_ADAPT_MAP_X, TCC_ADAPT_MAP_Y, 6, 6, TCC_ADAPT_MAP_Z);
+    this->tcc_adapt_map_d1 = new StoredMap(NVS_KEY_TCC_ADAPT_MAP_1, TCC_ADAPT_MAP_Z_SIZE, TCC_ADAPT_MAP_X, TCC_ADAPT_MAP_Y, 6, 6, TCC_ADAPT_MAP_Z, true);
     if (this->tcc_adapt_map_d1->init_status() != ESP_OK) {
         delete this->tcc_adapt_map_d1;
         this->tcc_adapt_map_d1 = nullptr;
     }
 
-    this->tcc_adapt_map_d2 = new StoredMap(NVS_KEY_TCC_ADAPT_MAP_2, TCC_ADAPT_MAP_Z_SIZE, TCC_ADAPT_MAP_X, TCC_ADAPT_MAP_Y, 6, 6, TCC_ADAPT_MAP_Z);
+    this->tcc_adapt_map_d2 = new StoredMap(NVS_KEY_TCC_ADAPT_MAP_2, TCC_ADAPT_MAP_Z_SIZE, TCC_ADAPT_MAP_X, TCC_ADAPT_MAP_Y, 6, 6, TCC_ADAPT_MAP_Z, true);
     if (this->tcc_adapt_map_d2->init_status() != ESP_OK) {
         delete this->tcc_adapt_map_d2;
         this->tcc_adapt_map_d2 = nullptr;
     }
 
-    this->tcc_adapt_map_d3 = new StoredMap(NVS_KEY_TCC_ADAPT_MAP_3, TCC_ADAPT_MAP_Z_SIZE, TCC_ADAPT_MAP_X, TCC_ADAPT_MAP_Y, 6, 6, TCC_ADAPT_MAP_Z);
+    this->tcc_adapt_map_d3 = new StoredMap(NVS_KEY_TCC_ADAPT_MAP_3, TCC_ADAPT_MAP_Z_SIZE, TCC_ADAPT_MAP_X, TCC_ADAPT_MAP_Y, 6, 6, TCC_ADAPT_MAP_Z, true);
     if (this->tcc_adapt_map_d3->init_status() != ESP_OK) {
         delete this->tcc_adapt_map_d3;
         this->tcc_adapt_map_d3 = nullptr;
     }
 
-    this->tcc_adapt_map_d4 = new StoredMap(NVS_KEY_TCC_ADAPT_MAP_4, TCC_ADAPT_MAP_Z_SIZE, TCC_ADAPT_MAP_X, TCC_ADAPT_MAP_Y, 6, 6, TCC_ADAPT_MAP_Z);
+    this->tcc_adapt_map_d4 = new StoredMap(NVS_KEY_TCC_ADAPT_MAP_4, TCC_ADAPT_MAP_Z_SIZE, TCC_ADAPT_MAP_X, TCC_ADAPT_MAP_Y, 6, 6, TCC_ADAPT_MAP_Z, true);
     if (this->tcc_adapt_map_d4->init_status() != ESP_OK) {
         delete this->tcc_adapt_map_d4;
         this->tcc_adapt_map_d4 = nullptr;
     }
 
-    this->tcc_adapt_map_d5 = new StoredMap(NVS_KEY_TCC_ADAPT_MAP_5, TCC_ADAPT_MAP_Z_SIZE, TCC_ADAPT_MAP_X, TCC_ADAPT_MAP_Y, 6, 6, TCC_ADAPT_MAP_Z);
+    this->tcc_adapt_map_d5 = new StoredMap(NVS_KEY_TCC_ADAPT_MAP_5, TCC_ADAPT_MAP_Z_SIZE, TCC_ADAPT_MAP_X, TCC_ADAPT_MAP_Y, 6, 6, TCC_ADAPT_MAP_Z, true);
     if (this->tcc_adapt_map_d5->init_status() != ESP_OK) {
         delete this->tcc_adapt_map_d5;
         this->tcc_adapt_map_d5 = nullptr;
@@ -84,7 +84,7 @@ TorqueConverter::TorqueConverter(uint16_t max_gb_rating)  {
 
 
 
-    this->slip_rpm_target_map = new StoredMap(NVS_KEY_TCC_SLIP_TARGET_MAP, TCC_RPM_TARGET_MAP_SIZE, rpm_map_x_headers, rpm_map_y_headers, 11, 8, TCC_RPM_TARGET_MAP);
+    this->slip_rpm_target_map = new StoredMap(NVS_KEY_TCC_SLIP_TARGET_MAP, TCC_RPM_TARGET_MAP_SIZE, rpm_map_x_headers, rpm_map_y_headers, 11, 8, TCC_RPM_TARGET_MAP, true);
     if (this->slip_rpm_target_map->init_status() != ESP_OK) {
         delete this->slip_rpm_target_map;
         this->slip_rpm_target_map = nullptr;

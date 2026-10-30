@@ -91,7 +91,7 @@ PressureManager::PressureManager(SensorData* sensor_ptr, uint16_t max_torque) {
         (int16_t)Clutch::B1,
         (int16_t)Clutch::B2
     };
-    this->fill_time_map = new LookupAllocMap(fill_t_x_headers, 4, fill_t_y_headers, 5, LARGE_NAG_FILL_TIME_MAP, FILL_TIME_MAP_SIZE);
+    this->fill_time_map = new LookupAllocMap(fill_t_x_headers, 4, fill_t_y_headers, 5, LARGE_NAG_FILL_TIME_MAP, FILL_TIME_MAP_SIZE, true);
     if (!this->fill_time_map->is_allocated()) {
         delete this->fill_time_map;
         this->fill_time_map = nullptr;
@@ -107,7 +107,7 @@ PressureManager::PressureManager(SensorData* sensor_ptr, uint16_t max_torque) {
         (int16_t)Clutch::B2,
         (int16_t)Clutch::B3
     };
-    this->fill_pressure_map = new LookupAllocMap(fill_p_x_headers, 1, fill_p_y_headers, 6, NAG_FILL_PRESSURE_MAP, FILL_PRESSURE_MAP_SIZE);
+    this->fill_pressure_map = new LookupAllocMap(fill_p_x_headers, 1, fill_p_y_headers, 6, NAG_FILL_PRESSURE_MAP, FILL_PRESSURE_MAP_SIZE, true);
     if (!this->fill_pressure_map->is_allocated()) {
         delete this->fill_pressure_map;
         this->fill_pressure_map = nullptr;
@@ -122,7 +122,7 @@ PressureManager::PressureManager(SensorData* sensor_ptr, uint16_t max_torque) {
         (int16_t)Clutch::B1,
         (int16_t)Clutch::B2
     };
-    this->fill_low_pressure_map = new LookupAllocMap(fill_lp_x_headers, 1, fill_lp_y_headers, 5, NAG_FILL_LOW_PRESSURE_MAP, LOW_FILL_PRESSURE_MAP_SIZE);
+    this->fill_low_pressure_map = new LookupAllocMap(fill_lp_x_headers, 1, fill_lp_y_headers, 5, NAG_FILL_LOW_PRESSURE_MAP, LOW_FILL_PRESSURE_MAP_SIZE, true);
     if (!this->fill_low_pressure_map->is_allocated()) {
         delete this->fill_low_pressure_map;
         this->fill_low_pressure_map = nullptr;
@@ -131,7 +131,7 @@ PressureManager::PressureManager(SensorData* sensor_ptr, uint16_t max_torque) {
     /** Pressure PWM map (TCC) **/
     const int16_t pwm_tcc_x_headers[7] = {0, 2000, 4000, 5000, 7500, 10000, 15000};
     const int16_t pwm_tcc_y_headers[5] = {0, 30, 60, 90, 120};
-    tcc_pwm_map = new StoredMap("TCC_PWM" /* UN52 NVS_KEY_MAP_NAME_TCC_PWM, never changed here so not in EEPROM */, TCC_PWM_MAP_SIZE, pwm_tcc_x_headers, pwm_tcc_y_headers, 7, 5, TCC_PWM_MAP);
+    tcc_pwm_map = new StoredMap("TCC_PWM" /* UN52 NVS_KEY_MAP_NAME_TCC_PWM, never changed here so not in EEPROM */, TCC_PWM_MAP_SIZE, pwm_tcc_x_headers, pwm_tcc_y_headers, 7, 5, TCC_PWM_MAP, true);
     if (this->tcc_pwm_map->init_status() != ESP_OK) {
         delete this->tcc_pwm_map;
         this->tcc_pwm_map = nullptr;

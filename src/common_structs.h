@@ -94,13 +94,11 @@ struct SensorData{
     int16_t acceleration_ms2;
 };
 
-/*
 struct OutputData {
     float torque_req_amount;
     TorqueRequestControlType ctrl_type;
     TorqueRequestBounds bounds;
 };
-*/
 
 /**
  * @brief A gearchange that a AbstractProfile can request

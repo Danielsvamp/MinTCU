@@ -176,7 +176,7 @@ const int16_t M_PETROL_DOWNSHIFT_MAP[SHIFT_MAP_SIZE] TCU_FLASH = {
 
 // Copied from UN52 maps.cpp
 
-const int16_t LARGE_NAG_FILL_TIME_MAP[FILL_TIME_MAP_SIZE] = {
+const int16_t LARGE_NAG_FILL_TIME_MAP[FILL_TIME_MAP_SIZE] TCU_FLASH = {
     /* ATF TEMP             */
     /*  -20C,  5C, 25C, 60C */
          600, 360, 220, 160, // K1 clutch
@@ -186,13 +186,13 @@ const int16_t LARGE_NAG_FILL_TIME_MAP[FILL_TIME_MAP_SIZE] = {
          820, 680, 260, 120  // B2 brake
 };
 
-const int16_t NAG_FILL_PRESSURE_MAP[FILL_PRESSURE_MAP_SIZE] = {
+const int16_t NAG_FILL_PRESSURE_MAP[FILL_PRESSURE_MAP_SIZE] TCU_FLASH = {
     /* Clutch                    */
     /* K1    K2    K3    B1    B2    B3 */
      1500, 1500, 1500, 1500, 1500, 1500
 };
 
-const int16_t NAG_FILL_LOW_PRESSURE_MAP[LOW_FILL_PRESSURE_MAP_SIZE] = {
+const int16_t NAG_FILL_LOW_PRESSURE_MAP[LOW_FILL_PRESSURE_MAP_SIZE] TCU_FLASH = {
     /* Clutch                    */
     /* K1    K2    K3    B1    B2 */
       700,  700,  750,  700,  620
@@ -308,7 +308,7 @@ const int16_t R_DOWNSHIFT_TIME_MAP[] TCU_FLASH = { // Value = Target time in ms 
     /* Redline (100%)  */  100,  100,  100, 100,  100,  100
 };
 
-const int16_t TCC_PWM_MAP[TCC_PWM_MAP_SIZE] = { // values are in /4096
+const int16_t TCC_PWM_MAP[TCC_PWM_MAP_SIZE] TCU_FLASH = { // values are in /4096
  /*         TCC PRESSURE (mBar)              */
  /* 0   2000  4000  5000  7500  10000  15000 */
     0,   480,  960, 1280, 1920,  2560,  4096, // 0C
@@ -322,7 +322,7 @@ const int16_t TCC_PWM_MAP[TCC_PWM_MAP_SIZE] = { // values are in /4096
 // Values <=10 - Sets TCC is closed
 // Values > 100 - Sets TCC is open
 // Values between 10 and 100 - Tcc is slipping with desired target slip
-const int16_t TCC_RPM_TARGET_MAP[TCC_RPM_TARGET_MAP_SIZE] = {
+const int16_t TCC_RPM_TARGET_MAP[TCC_RPM_TARGET_MAP_SIZE] TCU_FLASH = {
     /*  0    10   20   30   40   50   60   70   80   90   100 <- Pedal pos (%) */
         200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, // Input 1000 RPM
          50,  50,  50,  55,  60,  65,  70,  75,  80, 100, 100, // Input 1200 RPM
@@ -338,7 +338,7 @@ const int16_t TCC_RPM_TARGET_MAP[TCC_RPM_TARGET_MAP_SIZE] = {
 const int16_t TCC_ADAPT_MAP_X[6] = {0, 5, 10, 25, 50, 100};
 const int16_t TCC_ADAPT_MAP_Y[6] = {-20, 0, 20, 40, 80, 120};
 
-const int16_t TCC_ADAPT_MAP_Z[TCC_ADAPT_MAP_Z_SIZE] = { // Z - Hydraulic Pressure
+const int16_t TCC_ADAPT_MAP_Z[TCC_ADAPT_MAP_Z_SIZE] TCU_FLASH = { // Z - Hydraulic Pressure
     //   0, 5, 10, 25, 50, 100  Torque (%)
          0, 0, 0, 0, 0, 0, // -20 C
     0, 0, 0, 0, 0, 0,// 0 C

@@ -13,7 +13,7 @@ static void can_int_isr() {
     }
 }
 
-McpCan::McpCan(uint8_t cs_pin, uint8_t int_pin, const uint16_t filters[MCP_NUM_FILTERS]) : mcp(cs_pin, 8000000), int_pin(int_pin) {
+McpCan::McpCan(uint8_t cs_pin, uint8_t int_pin, const uint16_t filters[MCP_NUM_FILTERS], bool transmit) : mcp(cs_pin, 8000000), int_pin(int_pin), transmit(transmit) {
     for (uint8_t i = 0; i < MCP_NUM_FILTERS; i++) {
         this->filters[i] = filters[i];
     }
@@ -38,7 +38,8 @@ bool McpCan::begin() {
     if (!ok) {
         return false;
     }
-    // Listen only: we never ACK or transmit, so we cannot upset the car's CAN bus
+    // Listen only to start with: we never ACK or transmit, so a wrong bit rate cannot upset the car's
+    // CAN bus. update() switches to normal mode once frames have been received (Only if this layer transmits)
     if (MCP2515::ERROR_OK != this->mcp.setListenOnlyMode()) {
         return false;
     }
@@ -104,6 +105,57 @@ void McpCan::update() {
             this->last_rx_time = now;
         }
     }
+
+    // MinTCU (not in UN52): transmit only while the car's frames are coming in. Frames received
+    // prove the bit rate. When the bus goes quiet (Ignition off), stop, so the MCP2515 does not keep
+    // re-sending frames nobody ACKs
+    if (this->transmit && !this->tx_bus_off) {
+        bool rx_ok = this->bus_ok(CAN_TX_RX_TIMEOUT_MS);
+        if (!this->tx_active && rx_ok) {
+            // The INT pin interrupt also uses SPI. setMode() waits on millis(), so only this
+            // interrupt is switched off, not all of them
+            detachInterrupt(digitalPinToInterrupt(this->int_pin));
+            this->tx_active = MCP2515::ERROR_OK == this->mcp.setNormalMode();
+            attachInterrupt(digitalPinToInterrupt(this->int_pin), can_int_isr, FALLING);
+            this->last_tx_time = now - CAN_TX_TIME_MS;
+        } else if (this->tx_active && !rx_ok) {
+            this->stop_tx();
+        }
+        if (this->tx_active) {
+            noInterrupts();
+            uint8_t eflg = this->mcp.getErrorFlags();
+            interrupts();
+            if (0 != (eflg & MCP2515::EFLG_TXBO)) {
+                // Bus-off: something is wrong with our transmitting. Back to listen-only until the next power up
+                this->tx_bus_off = true;
+                this->stop_tx();
+            } else if (now - this->last_tx_time >= CAN_TX_TIME_MS) {
+                this->last_tx_time = now;
+                this->tx_frames();
+            }
+        }
+    }
+}
+
+void McpCan::stop_tx() {
+    detachInterrupt(digitalPinToInterrupt(this->int_pin));
+    this->mcp.setListenOnlyMode();
+    attachInterrupt(digitalPinToInterrupt(this->int_pin), can_int_isr, FALLING);
+    this->tx_active = false;
+}
+
+void McpCan::send_frame(uint16_t id, uint8_t dlc, uint64_t data) {
+    struct can_frame frame;
+    frame.can_id = id;
+    frame.can_dlc = dlc;
+    // Same as UN52 to_bytes: data[0] is the MSB
+    for (uint8_t i = 0; i < 8; i++) {
+        frame.data[i] = (uint8_t)(data >> (8*(7-i)));
+    }
+    // The INT pin interrupt also uses SPI
+    noInterrupts();
+    this->mcp.sendMessage(&frame);
+    interrupts();
 }
 
 bool McpCan::bus_ok(const uint32_t expire_time_ms) {

@@ -63,9 +63,13 @@ void setup() {
 
     gearbox = new Gearbox(); // Also sets up the sensors (TCUIO::setup_io_layer)
     Serial.print(F("Calibration: "));
-    Serial.println(CAL_DESCRIPTION);
+    Serial.println((const __FlashStringHelper*)CAL_DESCRIPTION); // In flash
+    // Same as UN52 main.cpp: GS_218 says the gearbox is OK once everything is set up
     if (!EGSCal::init_egs_calibration()) {
         Serial.println(F("NO VALID CALIBRATION, staying in failsafe (Run tools/egs_cal_gen.py)"));
+        egs_can_hal->set_gearbox_ok(false);
+    } else {
+        egs_can_hal->set_gearbox_ok(true);
     }
     if (!Sensors::using_dedicated_output_rpm()) {
         Serial.println(F("No output speed sensor, output RPM is estimated from input RPM and gear (Set VEHICLE_CONFIG.input_sensor_pulses_per_rev)"));
@@ -74,7 +78,7 @@ void setup() {
     // MinTCU fault memory (GearboxFault bits in gearbox.h). Send 'C' over serial to clear it
     Serial.print(F("Stored faults: 0x"));
     Serial.println(gearbox->get_stored_faults(), HEX);
-    Serial.println(F("ms,rpm,n2,n3,input_rpm,output_rpm,ratio,pedal,trq_sta,trq_drv,trq_in,shifter,gear,atf,vbatt,mpc_targ,mpc_corr,mpc_ma,mpc_ma_est,duty_permille,spc_ma,shift_sol,garage,shift,tcc,slip,prof,faults,failsafe,can_ovf"));
+    Serial.println(F("ms,rpm,n2,n3,input_rpm,output_rpm,ratio,pedal,trq_sta,trq_drv,trq_in,shifter,gear,atf,vbatt,mpc_targ,mpc_corr,mpc_ma,mpc_ma_est,duty_permille,spc_ma,shift_sol,garage,shift,tcc,slip,trq_req,prof,faults,failsafe,can_ovf"));
     // If the loop ever hangs for 250ms, the Mega resets. Pins go high-Z in reset,
     // the gate pull-downs turn the solenoids off = max pressure
     wdt_enable(WDTO_250MS);

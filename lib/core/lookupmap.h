@@ -37,7 +37,7 @@ class LookupMap {
 
 class LookupAllocMap : public LookupMap {
     public:
-        LookupAllocMap(const int16_t* _xHeader, const uint16_t _xHeaderSize, const int16_t* _yHeader, const uint16_t _yHeaderSize, const int16_t* _data, const uint16_t _dataSize);
+        LookupAllocMap(const int16_t* _xHeader, const uint16_t _xHeaderSize, const int16_t* _yHeader, const uint16_t _yHeaderSize, const int16_t* _data, const uint16_t _dataSize, const bool data_in_flash = false);
         bool add_data(const int16_t* map, const uint16_t size);
         bool is_allocated(void) const;
         ~LookupAllocMap();

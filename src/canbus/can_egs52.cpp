@@ -3,7 +3,7 @@
 
 constexpr uint16_t Egs52Can::FILTERS[];
 
-Egs52Can::Egs52Can(uint8_t cs_pin, uint8_t int_pin) : McpCan(cs_pin, int_pin, FILTERS) {
+Egs52Can::Egs52Can(uint8_t cs_pin, uint8_t int_pin) : McpCan(cs_pin, int_pin, FILTERS, false) {
 }
 
 uint8_t Egs52Can::import_frame(uint64_t data, uint16_t id, uint32_t now) {

@@ -254,7 +254,7 @@ static_assert(sizeof(ShiftAlgorithmPack) == %d, "ShiftAlgorithmPack layout does 
 extern const bool CAL_GENERATED;
 const bool CAL_GENERATED = true;
 extern const char CAL_DESCRIPTION[];
-const char CAL_DESCRIPTION[] = "EGS %s %s %s hydr %s mech %s tcc %s shift %s";
+const char CAL_DESCRIPTION[] PROGMEM = "EGS %s %s %s hydr %s mech %s tcc %s shift %s";
 
 %s
 

@@ -36,6 +36,11 @@ Gearbox::Gearbox()
     memset(&this->sensor_data, 0, sizeof(this->sensor_data));
     this->sensor_data.atf_temp = ATF_FAILSAFE_TEMP_C;
     this->sensor_data.tcc_trq_multiplier = 1.0;
+    this->output_data = OutputData{
+        .torque_req_amount = 0,
+        .ctrl_type = TorqueRequestControlType::None,
+        .bounds = TorqueRequestBounds::LessThan,
+    };
     memset(&this->speed_sensors, 0, sizeof(this->speed_sensors));
     this->gearboxConfig.max_torque = 0;
     this->cal_ok = EGSCal::init_egs_calibration();
@@ -445,6 +450,13 @@ void Gearbox::update_gear(GearboxGear requested) {
     }
 }
 
+void Gearbox::set_torque_request(TorqueRequestControlType ctrl_type, TorqueRequestBounds bounds, float amount) {
+    this->output_data.torque_req_amount = amount;
+    this->output_data.ctrl_type = ctrl_type;
+    this->output_data.bounds = bounds;
+    egs_can_hal->set_torque_request(ctrl_type, bounds, amount);
+}
+
 void Gearbox::abort_shift() {
     if (this->fwd_shifting) {
         this->fwd_result = 3;
@@ -515,10 +527,12 @@ void Gearbox::start_fwd_shift(GearChange req_lookup) {
     } else if (GearChange::_5_4 == req_lookup) {
         en_trq_req = SBS_CURRENT_SETTINGS.en_trq_req_5_4;
     }
-    // MinTCU only listens on the CAN bus, so the engine never gets a torque request. Tell the shift
-    // algorithms, then they make up for the torque that is not taken away (UN52 does the same when
-    // torque requests are switched off in the settings)
-    en_trq_req = false;
+    // MinTCU: while the CAN layer cannot send (EGS52 layer, or still in listen-only mode), the engine
+    // never gets a torque request. Tell the shift algorithms, then they make up for the torque that
+    // is not taken away (UN52 does the same when torque requests are switched off in the settings)
+    if (!egs_can_hal->can_request_torque()) {
+        en_trq_req = false;
+    }
 
     f->sid = ShiftInterfaceData {
         .profile = profile,
@@ -597,7 +611,13 @@ void Gearbox::step_fwd_shift() {
     int32_t abs_input_torque = abs((int32_t)sensor_data.input_torque);
     f->now_cs = ClutchSpeedModel::get_shifting_clutch_speeds(this->speed_sensors, f->sid.change, this->gearboxConfig.bounds);
 
-    // (UN52 sends the torque request here. MinTCU does not, see start_fwd_shift)
+    // Same as UN52
+    if (!stationary_shift) {
+        this->set_torque_request(f->trd.ty, f->trd.bounds, f->trd.amount);
+    }
+    else {
+        this->set_torque_request(TorqueRequestControlType::None, TorqueRequestBounds::LessThan, 0); // And also torque requests
+    }
 
     // Algorithm has control
     uint8_t step_result = f->algo->step(
@@ -673,6 +693,7 @@ void Gearbox::end_fwd_shift(bool result) {
     pressure_manager->set_spc_p_max();
     pressure_manager->set_shift_circuit(f->sd.shift_circuit, false);
     pressure_manager->notify_shift_end();
+    this->set_torque_request(TorqueRequestControlType::None, TorqueRequestBounds::LessThan, 0);
     this->sensor_data.last_shift_time = GET_CLOCK_TIME();
     delete f->algo;
     f->algo = nullptr;
@@ -714,6 +735,7 @@ void Gearbox::start_garage_shift(GearboxGear target) {
 void Gearbox::step_garage_shift() {
     GarageShift* g = &this->gar;
     GearboxGear target_gear = g->target;
+    egs_can_hal->set_garage_shift_state(sensor_data.output_rpm < 10, !g->into_reverse);
     g->rpm_delta = abs((int32_t)sensor_data.input_rpm - calc_input_rpm_from_req_gear(sensor_data.output_rpm, target_gear, &this->gearboxConfig));
     int32_t rpm_delta = g->rpm_delta;
     int32_t sync_rpm_threshold = GAR_CURRENT_SETTINGS.sync_rpm_idle;
@@ -964,6 +986,7 @@ void Gearbox::end_garage_shift() {
     this->pressure_mgr->set_shift_circuit(ShiftCircuit::sc_3_4, false);
     this->pressure_mgr->set_shift_circuit(ShiftCircuit::sc_2_3, false);
     this->pressure_mgr->set_shift_circuit(ShiftCircuit::sc_1_2, false);
+    egs_can_hal->set_garage_shift_state(false, !this->gar.into_reverse);
     this->shifting = false;
 }
 
@@ -1461,11 +1484,19 @@ void Gearbox::controller_loop() {
     if (!this->pressure_mgr->is_failsafe() && this->speeds_valid && is_fwd_gear(this->actual_gear)) {
         if (is_fwd_gear(this->target_gear)) {
             this->tcc->update(this->actual_gear, this->target_gear, this->pressure_mgr, this->current_profile, &this->sensor_data);
+            egs_can_hal->set_clutch_status(this->tcc->get_clutch_state());
         }
     } else {
         this->pressure_mgr->set_target_tcc_pressure(0);
+        egs_can_hal->set_clutch_status(TccClutchStatus::Open);
     }
     this->update_gear(requested);
+
+    // Values for the engine (Same as UN52, in the EGS51 GS_218 frame)
+    egs_can_hal->set_shifter_position(this->shifter_pos);
+    egs_can_hal->set_tcc_trq_multiplier(this->sensor_data.tcc_trq_multiplier);
+    egs_can_hal->set_target_gear(this->target_gear);
+    egs_can_hal->set_actual_gear(this->actual_gear);
 
     if (this->fwd_shifting) {
         // The shift algorithm sets MPC and SPC (Same as UN52 elapse_shift)
@@ -1569,6 +1600,13 @@ void Gearbox::print_log() {
     Serial.print(this->pressure_mgr->get_targ_tcc_pressure());
     Serial.print(',');
     Serial.print(this->tcc->get_slip_now());
+    Serial.print(',');
+    // Torque request to the engine (Nm), empty when there is none. L = the CAN layer cannot send (Listen-only)
+    if (!egs_can_hal->can_request_torque()) {
+        Serial.print('L');
+    } else if (TorqueRequestControlType::None != this->output_data.ctrl_type) {
+        Serial.print((int16_t)this->output_data.torque_req_amount);
+    }
     Serial.print(',');
     // Profile (S C W A M R, the letters UN52 shows on the cluster), then K while kickdown is pressed
     if (nullptr != this->current_profile && this->current_profile->get_profile_id() < NUM_PROFILES) {

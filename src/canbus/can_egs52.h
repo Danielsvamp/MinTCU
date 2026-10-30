@@ -8,7 +8,8 @@
 /**
  * EGS52 CAN layer (W210 with EDC15 and EWM shifter), ported from UN52 can_egs52.cpp.
  *
- * MinTCU only LISTENS on the CAN bus (MCP2515 listen-only mode), it never transmits.
+ * This layer only LISTENS on the CAN bus (MCP2515 listen-only mode), it never transmits. The EGS52
+ * GS_218 torque request (With its counters and checksum) is not ported yet.
  * Accepted frames: MS_210, MS_212, MS_308, MS_312, MS_608 (engine) and EWM_230 (shifter)
  */
 class Egs52Can: public McpCan {

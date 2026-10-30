@@ -26,7 +26,8 @@ class StoredMap : public LookupAllocMap {
             const int16_t* y_headers,
             const uint16_t x_size,
             const uint16_t y_size,
-            const int16_t* default_map
+            const int16_t* default_map,
+            const bool default_in_flash = false // MinTCU: default_map is in flash (TCU_FLASH)
         );
         esp_err_t init_status() const { return this->init_state; }
         /**

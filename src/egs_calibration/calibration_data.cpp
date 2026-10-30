@@ -11,7 +11,7 @@ static_assert(sizeof(ShiftAlgorithmPack) == 672, "ShiftAlgorithmPack layout does
 extern const bool CAL_GENERATED;
 const bool CAL_GENERATED = true;
 extern const char CAL_DESCRIPTION[];
-const char CAL_DESCRIPTION[] = "EGS 0305452032 210.016 722.634 W5A580 hydr STDP mech var7 tcc 0000 shift SM06";
+const char CAL_DESCRIPTION[] PROGMEM = "EGS 0305452032 210.016 722.634 W5A580 hydr STDP mech var7 tcc 0000 shift SM06";
 
 HydraulicCalibration HYDR_CAL = {
     431, // p_multi_1
