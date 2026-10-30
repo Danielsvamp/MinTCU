@@ -3,17 +3,12 @@
 // W202 C220 CDI, chassis 202.194: CR1 EDC15, 722.614 or 722.699, original ABS on the CAN bus.
 // UN52's defaults (nvs/eeprom_config.cpp, used when no SCN config is stored), except where it says MinTCU.
 
-// MinTCU: the diff ratio comes from the car's SCN coding (x1000, eg 3.070 = 3070). It turns the rear wheel
-// speeds on CAN into the output shaft speed, so a wrong value makes every shift decision wrong.
-// It is not in the UN52 calibration database, so it is left for the coding of this car:
-// build with -D W202_194_DIFF_RATIO=xxxx, or put the number here.
-#ifndef W202_194_DIFF_RATIO
-#error "Set W202_194_DIFF_RATIO (diff ratio x1000 from the 202.194 coding) in src/cars/w202_194/vehicle_config.cpp"
-#endif
-
 TCM_CORE_CONFIG VEHICLE_CONFIG = {
     .deprecated_is_large_nag = 0,
-    .diff_ratio = W202_194_DIFF_RATIO,
+    // MinTCU: 3.07 from EPC for the 202.194 (x1000, same scale as UN52). It turns the rear wheel speeds on
+    // CAN into the output shaft speed, so a wrong value makes every shift decision wrong. Check it
+    // against the car's SCN coding when that is read
+    .diff_ratio = 3070,
     .wheel_circumference = 2850,
     .is_four_matic = 0,
     .transfer_case_high_ratio = 1000,
